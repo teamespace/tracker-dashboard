@@ -1,12 +1,20 @@
-import { LayoutGrid, FolderKanban, LineChart, Users, Receipt, Settings } from 'lucide-react';
+import type { ComponentType } from 'react';
+import { useState } from 'react';
+import { motion } from 'motion/react';
 import type { Page } from '../App';
 import NotificationsMenu from './NotificationsMenu';
 import logo from '../assets/logo.svg';
+import { BarChart3, Folder, LayoutGrid, Receipt, Settings, Users } from 'lucide-react';
+import { AnimatedChartIcon } from './motion/icons/AnimatedChartIcon';
+import { AnimatedUsersIcon } from './motion/icons/AnimatedUsersIcon';
+import { AnimatedReceiptIcon } from './motion/icons/AnimatedReceiptIcon';
 
-const NAV: { id: Page; label: string; icon: typeof LayoutGrid }[] = [
+type NavIcon = ComponentType<{ className?: string }>;
+
+const NAV: { id: Page; label: string; icon: NavIcon }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutGrid },
-  { id: 'projects', label: 'Projects', icon: FolderKanban },
-  { id: 'earnings', label: 'Earnings', icon: LineChart },
+  { id: 'projects', label: 'Projects', icon: Folder },
+  { id: 'earnings', label: 'Earnings', icon: BarChart3 },
   { id: 'clients', label: 'Clients', icon: Users },
   { id: 'invoices', label: 'Invoices', icon: Receipt },
   { id: 'settings', label: 'Settings', icon: Settings },
@@ -15,6 +23,8 @@ const NAV: { id: Page; label: string; icon: typeof LayoutGrid }[] = [
 const DESKTOP_NAV = NAV.filter((item) => item.id !== 'settings');
 
 export default function TopNav({ page, setPage }: { page: Page; setPage: (p: Page) => void }) {
+  const [hoveredPage, setHoveredPage] = useState<Page | null>(null);
+
   return (
     <>
       {/* Desktop top bar — no fill of its own; only the pill nav gets its own capsule background */}
@@ -36,12 +46,40 @@ export default function TopNav({ page, setPage }: { page: Page; setPage: (p: Pag
                 <button
                   key={item.id}
                   onClick={() => setPage(item.id)}
+                  onMouseEnter={() => setHoveredPage(item.id)}
+                  onMouseLeave={() => setHoveredPage((current) => (current === item.id ? null : current))}
+                  onFocus={() => setHoveredPage(item.id)}
+                  onBlur={() => setHoveredPage((current) => (current === item.id ? null : current))}
                   aria-current={active ? 'page' : undefined}
                   className={`focus-ring flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                     active ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'
                   }`}
                 >
-                  {active && <Icon className="w-4 h-4" aria-hidden />}
+                  {item.id === 'earnings' ? (
+                    <AnimatedChartIcon className="w-4 h-4" active={hoveredPage === item.id} />
+                  ) : item.id === 'clients' ? (
+                    <AnimatedUsersIcon className="w-4 h-4" active={hoveredPage === item.id} />
+                  ) : item.id === 'invoices' ? (
+                    <AnimatedReceiptIcon className="w-4 h-4" active={hoveredPage === item.id} />
+                  ) : item.id === 'overview' ? (
+                    <motion.span
+                      className="inline-flex"
+                      animate={{ rotate: hoveredPage === item.id ? 45 : 0 }}
+                      transition={{ duration: 0.22, ease: 'easeOut' }}
+                    >
+                      <Icon className="w-4 h-4" />
+                    </motion.span>
+                  ) : item.id === 'projects' ? (
+                    <motion.span
+                      className="inline-flex"
+                      animate={hoveredPage === item.id ? { x: [0, -1.5, 1.5, 0], rotate: [0, -3, 3, 0] } : { x: 0, rotate: 0 }}
+                      transition={{ duration: 0.28, ease: 'easeInOut' }}
+                    >
+                      <Icon className="w-4 h-4" />
+                    </motion.span>
+                  ) : (
+                    <Icon className="w-4 h-4" />
+                  )}
                   {item.label}
                 </button>
               );
@@ -53,11 +91,18 @@ export default function TopNav({ page, setPage }: { page: Page; setPage: (p: Pag
               onClick={() => setPage('settings')}
               aria-label="Settings"
               aria-current={page === 'settings' ? 'page' : undefined}
-              className={`focus-ring p-2 rounded-full transition-colors ${
+               className={`focus-ring inline-flex w-9 h-9 items-center justify-center rounded-full transition-colors ${
                 page === 'settings' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
               }`}
             >
-              <Settings className="w-5 h-5" aria-hidden />
+              <motion.span
+                className="inline-flex"
+                whileHover={{ rotate: 180, scale: 1 }}
+                whileFocus={{ rotate: 180, scale: 1 }}
+                transition={{ duration: 0.35, ease: 'easeInOut' }}
+              >
+                <Settings className="w-5 h-5" />
+              </motion.span>
             </button>
             <NotificationsMenu />
             <div className="relative">
@@ -82,11 +127,39 @@ export default function TopNav({ page, setPage }: { page: Page; setPage: (p: Pag
             <button
               key={item.id}
               onClick={() => setPage(item.id)}
-              className={`focus-ring flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg text-[10px] font-medium ${
+              onMouseEnter={() => setHoveredPage(item.id)}
+              onMouseLeave={() => setHoveredPage((current) => (current === item.id ? null : current))}
+              onFocus={() => setHoveredPage(item.id)}
+              onBlur={() => setHoveredPage((current) => (current === item.id ? null : current))}
+               className={`focus-ring flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-full text-[10px] font-medium ${
                 active ? 'text-emerald-700' : 'text-slate-400'
               }`}
             >
-              <Icon className="w-5 h-5" aria-hidden />
+              {item.id === 'earnings' ? (
+                <AnimatedChartIcon className="w-5 h-5" active={hoveredPage === item.id} />
+              ) : item.id === 'clients' ? (
+                <AnimatedUsersIcon className="w-5 h-5" active={hoveredPage === item.id} />
+              ) : item.id === 'invoices' ? (
+                <AnimatedReceiptIcon className="w-5 h-5" active={hoveredPage === item.id} />
+              ) : item.id === 'overview' ? (
+                <motion.span
+                  className="inline-flex"
+                  animate={{ rotate: hoveredPage === item.id ? 45 : 0 }}
+                  transition={{ duration: 0.22, ease: 'easeOut' }}
+                >
+                  <Icon className="w-5 h-5" />
+                </motion.span>
+              ) : item.id === 'projects' ? (
+                <motion.span
+                  className="inline-flex"
+                  animate={hoveredPage === item.id ? { x: [0, -1.5, 1.5, 0], rotate: [0, -3, 3, 0] } : { x: 0, rotate: 0 }}
+                  transition={{ duration: 0.28, ease: 'easeInOut' }}
+                >
+                  <Icon className="w-5 h-5" />
+                </motion.span>
+              ) : (
+                <Icon className="w-5 h-5" />
+              )}
               <span>{item.label}</span>
             </button>
           );

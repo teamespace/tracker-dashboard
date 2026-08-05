@@ -1,33 +1,28 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useCallback, useMemo, useState, type FormEvent } from 'react';
 import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Select, SelectItem } from '@tremor/react';
 import { Menu, MenuButton, MenuItem, MenuItems, Popover, PopoverButton, PopoverPanel } from '@headlessui/react';
-import {
-  Search,
-  SlidersHorizontal,
-  ListFilter,
-  Download,
-  UserPlus,
-  Copy,
-  Bell,
-  MoreHorizontal,
-  ChevronsLeft,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsRight,
-  ChevronDown,
-  Trash2,
-} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { INVOICES, PROJECTS, CLIENTS, type Invoice, type InvoiceStatus } from '../data';
 import { fmtMoney } from '../lib/format';
 import Toast from '../components/Toast';
 import SortIcon from '../components/SortIcon';
 import ProjectIcon from '../components/ProjectIcon';
+import CreateDialog from '../components/CreateDialog';
+import { IconButton } from '../components/motion/IconButton';
+import { AnimatedTrashIcon } from '../components/motion/AnimatedTrashIcon';
+import { AnimatedCopyIcon } from '../components/motion/icons/AnimatedCopyIcon';
+import { Bell, ChevronDown, ChevronLeft, ChevronRight, Download, Filter, MoreHorizontal, Plus, Search, SlidersHorizontal, UserPlus } from 'lucide-react';
 
 type SortKey = 'number' | 'client' | 'amount' | 'issued' | 'due' | 'status';
 type Pill = 'all' | 'Overdue' | 'Upcoming' | 'High risk' | 'Enterprise';
 
-const PILLS: Pill[] = ['all', 'Overdue', 'Upcoming', 'High risk', 'Enterprise'];
+const PILLS: { value: Pill; label: string }[] = [
+  { value: 'all', label: 'All invoices' },
+  { value: 'Overdue', label: 'Overdue invoices' },
+  { value: 'Upcoming', label: 'Sent invoices' },
+  { value: 'High risk', label: 'High-risk overdue' },
+  { value: 'Enterprise', label: 'High-value clients' },
+];
 const STATUSES: InvoiceStatus[] = ['Draft', 'Sent', 'Paid', 'Overdue'];
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'due', label: 'Due date' },
@@ -43,6 +38,8 @@ const STATUS_DOT: Record<InvoiceStatus, string> = {
   Paid: 'bg-emerald-500 text-emerald-700',
   Overdue: 'bg-rose-500 text-rose-700',
 };
+
+const fieldClass = 'focus-ring mt-1 w-full rounded-full border border-hairline px-3 py-2 text-sm';
 
 function fmtDateLong(d: string): string {
   const dt = new Date(d + 'T00:00:00');
@@ -69,14 +66,16 @@ export default function Invoices() {
   const [rowsPerPage, setRowsPerPage] = useState('15');
   const [page, setPage] = useState(1);
   const [toast, setToast] = useState('');
+  const [undoInvoices, setUndoInvoices] = useState<Invoice[] | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const [newInvoice, setNewInvoice] = useState({ client: '', projectId: '', amount: '', due: '' });
 
-  // Best-effort invoice -> project lookup (our data model links invoices to clients, not
-  // projects directly), purely for the "Project" column shown in the reference design.
   const projectByInvoice = useMemo(() => {
     const map = new Map<number, { name: string; id: number }>();
-    invoices.forEach((inv, i) => {
-      const project = PROJECTS.find((p) => p.client === inv.client) ?? PROJECTS[i % PROJECTS.length];
-      map.set(inv.id, { name: project.name, id: project.id });
+    invoices.forEach((inv) => {
+      const project = PROJECTS.find((p) => p.id === inv.projectId);
+      if (project) map.set(inv.id, { name: project.name, id: project.id });
     });
     return map;
   }, [invoices]);
@@ -87,7 +86,7 @@ export default function Invoices() {
     return map;
   }, []);
 
-  function matchesPill(inv: Invoice): boolean {
+  const matchesPill = useCallback((inv: Invoice): boolean => {
     switch (pill) {
       case 'all':
         return true;
@@ -100,7 +99,7 @@ export default function Invoices() {
       case 'Enterprise':
         return (clientTotalBilled.get(inv.client) ?? 0) > 3000;
     }
-  }
+  }, [pill, clientTotalBilled]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -113,7 +112,7 @@ export default function Invoices() {
           inv.client.toLowerCase().includes(q) ||
           projectByInvoice.get(inv.id)?.name.toLowerCase().includes(q)),
     );
-  }, [invoices, pill, statusFilter, search, projectByInvoice, clientTotalBilled]);
+  }, [invoices, statusFilter, search, projectByInvoice, matchesPill]);
 
   const sorted = useMemo(() => {
     const { key, dir } = sort;
@@ -132,7 +131,8 @@ export default function Invoices() {
   function toggleRow(id: number) {
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
@@ -159,18 +159,107 @@ export default function Invoices() {
     setSelected(new Set());
   }
 
-  function duplicateInvoice(inv: Invoice) {
-    const maxId = Math.max(...invoices.map((i) => i.id));
-    setInvoices((prev) => [...prev, { ...inv, id: maxId + 1, number: `${inv.number}-copy`, status: 'Draft' }]);
+  function downloadInvoices(sourceInvoices: Invoice[]) {
+    if (sourceInvoices.length === 0) return;
+    const documents = sourceInvoices.map((inv) => {
+      const project = projectByInvoice.get(inv.id);
+      return [
+        `Invoice ${inv.number}`,
+        '========================',
+        `Client: ${inv.client}`,
+        `Project: ${project?.name ?? 'Not assigned'}`,
+        `Amount: ${fmtMoney(inv.amount)}`,
+        `Issued: ${fmtDateLong(inv.issued)}`,
+        `Due: ${fmtDateLong(inv.due)}`,
+        `Status: ${inv.status}`,
+      ].join('\n');
+    });
+    const content = documents.join('\n\n------------------------\n\n');
+    const filename = sourceInvoices.length === 1
+      ? `${sourceInvoices[0].number}.txt`
+      : 'selected-invoices.txt';
+    const safeFilename = filename.replace(/[^a-z0-9._-]/gi, '_');
+    const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = safeFilename;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    setToast(sourceInvoices.length === 1 ? `Downloaded ${sourceInvoices[0].number}` : `Downloaded ${sourceInvoices.length} invoices`);
+    setTimeout(() => setToast(''), 2200);
   }
 
-  function deleteInvoice(id: number) {
-    setInvoices((prev) => prev.filter((i) => i.id !== id));
+  function duplicateInvoice(inv: Invoice) {
+    duplicateInvoices([inv]);
+  }
+
+  function duplicateInvoices(sourceInvoices: Invoice[]) {
+    if (sourceInvoices.length === 0) return;
+    setInvoices((prev) => {
+      let nextId = Math.max(0, ...prev.map((i) => i.id)) + 1;
+      const duplicates = sourceInvoices.map((inv) => ({
+        ...inv,
+        id: nextId++,
+        number: `${inv.number}-copy`,
+        status: 'Draft' as const,
+      }));
+      return [...prev, ...duplicates];
+    });
+    setToast(`Duplicated ${sourceInvoices.length} invoice${sourceInvoices.length === 1 ? '' : 's'}`);
+    setTimeout(() => setToast(''), 2200);
+  }
+
+  function deleteInvoices(ids: number[]) {
+    if (ids.length === 0) return;
+    setInvoices((prev) => {
+      const removed = prev.filter((i) => ids.includes(i.id));
+      setUndoInvoices(removed);
+      return prev.filter((i) => !ids.includes(i.id));
+    });
     setSelected((prev) => {
       const next = new Set(prev);
-      next.delete(id);
+      ids.forEach((id) => next.delete(id));
       return next;
     });
+    setToast(`Deleted ${ids.length} invoice${ids.length === 1 ? '' : 's'}`);
+    setTimeout(() => {
+      setToast('');
+      setUndoInvoices(null);
+    }, 5000);
+  }
+
+  function undoDelete() {
+    if (!undoInvoices) return;
+    setInvoices((prev) => {
+      const existingIds = new Set(prev.map((i) => i.id));
+      return [...prev, ...undoInvoices.filter((i) => !existingIds.has(i.id))];
+    });
+    setUndoInvoices(null);
+    setToast('Invoices restored');
+  }
+
+  function createInvoice(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!newInvoice.client || !newInvoice.projectId || !newInvoice.amount || !newInvoice.due) {
+      setCreateError('Complete all required fields.');
+      return;
+    }
+    const invoice: Invoice = {
+      id: Math.max(0, ...invoices.map((item) => item.id)) + 1,
+      number: `INV-${1042 + Math.max(0, ...invoices.map((item) => item.id)) + 1}`,
+      projectId: Number(newInvoice.projectId),
+      client: newInvoice.client,
+      amount: Number(newInvoice.amount),
+      issued: new Date().toISOString().slice(0, 10),
+      due: newInvoice.due,
+      status: 'Draft',
+    };
+    setInvoices((prev) => [...prev, invoice]);
+    setCreateOpen(false);
+    setCreateError('');
+    setNewInvoice({ client: '', projectId: '', amount: '', due: '' });
+    setToast('Invoice created');
+    setTimeout(() => setToast(''), 2200);
   }
 
   const cols: { key: SortKey; label: string }[] = [
@@ -185,8 +274,10 @@ export default function Invoices() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-1">Invoices</h1>
-      <p className="text-sm text-slate-500 mb-6">Track what's billed and what's owed.</p>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div><h1 className="text-2xl font-bold mb-1">Invoices</h1><p className="text-sm text-slate-500">Track what's billed and what's owed.</p></div>
+         <IconButton as="button" onClick={() => setCreateOpen(true)} className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700"><><Plus className="h-4 w-4" /> New invoice</></IconButton>
+      </div>
 
       <Card className="p-0 overflow-visible">
         {/* Filter pills + toolbar */}
@@ -194,25 +285,25 @@ export default function Invoices() {
           <div className="flex flex-wrap items-center gap-2">
             {PILLS.map((p) => (
               <button
-                key={p}
+                key={p.value}
                 onClick={() => {
-                  setPill(p);
+                  setPill(p.value);
                   setPage(1);
                 }}
                 className={`focus-ring px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                  pill === p
+                  pill === p.value
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-white text-slate-600 border-hairline hover:bg-slate-50'
                 }`}
               >
-                {p === 'all' ? 'All' : p}
+                {p.label}
               </button>
             ))}
           </div>
 
           <div className="flex items-center gap-2">
             <div className="relative w-56">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="search"
                 value={search}
@@ -228,12 +319,13 @@ export default function Invoices() {
 
             {/* Sort by */}
             <Popover className="relative">
-              <PopoverButton className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-hairline text-sm font-medium text-slate-700 hover:bg-slate-50">
-                <SlidersHorizontal className="w-4 h-4" aria-hidden />
-                Sort by
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" aria-hidden />
+               <PopoverButton className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-hairline text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  {() => <><SlidersHorizontal className="w-4 h-4" />
+                 Sort by
+                   <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                </>}
               </PopoverButton>
-              <PopoverPanel anchor="bottom end" className="z-30 mt-2 w-48 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
+               <PopoverPanel className="absolute top-full right-0 z-30 mt-2 w-48 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
                 {({ close }) => (
                   <>
                     {SORT_OPTIONS.map((opt) => (
@@ -243,7 +335,7 @@ export default function Invoices() {
                           sortBy(opt.key);
                           close();
                         }}
-                        className="focus-ring w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm text-slate-700 hover:bg-slate-50"
+                         className="focus-ring w-full flex items-center justify-between px-3 py-2 rounded-full text-sm text-slate-700 hover:bg-slate-50"
                       >
                         {opt.label}
                         {sort.key === opt.key && <span className="text-xs text-slate-400">{sort.dir === 1 ? '▲' : '▼'}</span>}
@@ -256,14 +348,14 @@ export default function Invoices() {
 
             {/* Filter */}
             <Popover className="relative">
-              <PopoverButton className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-hairline text-sm font-medium text-slate-700 hover:bg-slate-50">
-                <ListFilter className="w-4 h-4" aria-hidden />
-                Filter
-                {statusFilter && <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />}
+               <PopoverButton className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-hairline text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  {() => <><Filter className="w-4 h-4" />
+                 Filter
+                 {statusFilter && <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />}</>}
               </PopoverButton>
-              <PopoverPanel anchor="bottom end" className="z-30 mt-2 w-56 rounded-xl border border-hairline bg-white shadow-lg p-3">
+               <PopoverPanel className="absolute top-full right-0 z-30 mt-2 w-56 rounded-xl border border-hairline bg-white shadow-lg p-3">
                 <label className="block text-xs font-medium text-slate-500 mb-1.5">Status</label>
-                <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }} placeholder="Any status" enableClear>
+                 <Select className="rounded-full" value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }} placeholder="Any status" enableClear>
                   {STATUSES.map((s) => (
                     <SelectItem key={s} value={s}>
                       {s}
@@ -273,9 +365,9 @@ export default function Invoices() {
               </PopoverPanel>
             </Popover>
           </div>
-        </div>
+         </div>
 
-        <div className="overflow-x-auto">
+         <div className="hidden sm:block overflow-x-auto">
           <Table>
             <TableHead className="bg-slate-50">
               <TableRow>
@@ -292,16 +384,18 @@ export default function Invoices() {
                   <Fragment key={col.key}>
                     {i === 1 && <TableHeaderCell>Project</TableHeaderCell>}
                     <TableHeaderCell
-                      tabIndex={0}
-                      onClick={() => sortBy(col.key)}
-                      onKeyDown={(e) => e.key === 'Enter' && sortBy(col.key)}
                       aria-sort={sort.key === col.key ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}
-                      className="focus-ring cursor-pointer select-none"
+                      className="select-none"
                     >
-                      <span className="inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => sortBy(col.key)}
+                         className="focus-ring inline-flex items-center gap-1 rounded-full"
+                        aria-label={`Sort by ${col.label}`}
+                      >
                         {col.label}
                         <SortIcon active={sort.key === col.key} dir={sort.dir} />
-                      </span>
+                      </button>
                     </TableHeaderCell>
                   </Fragment>
                 ))}
@@ -340,25 +434,24 @@ export default function Invoices() {
                     </TableCell>
                     <TableCell>
                       <Menu as="div" className="relative">
-                        <MenuButton className="focus-ring p-1.5 rounded-lg text-slate-400 hover:bg-slate-100" aria-label={`More actions for ${inv.number}`}>
-                          <MoreHorizontal className="w-4 h-4" aria-hidden />
+                           <MenuButton className="focus-ring p-1.5 rounded-full text-slate-400 hover:bg-slate-100" aria-label={`More actions for ${inv.number}`}>
+                             <MoreHorizontal className="w-4 h-4" />
                         </MenuButton>
-                        <MenuItems anchor="bottom end" className="z-30 w-40 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
+                          <MenuItems className="absolute top-full right-0 z-30 mt-2 w-52 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
                           <MenuItem>
-                            <button
-                              onClick={() => duplicateInvoice(inv)}
-                              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-700 data-[focus]:bg-slate-50"
-                            >
-                              <Copy className="w-3.5 h-3.5" aria-hidden /> Duplicate
-                            </button>
+                              <IconButton as="button" onClick={() => downloadInvoices([inv])} className="w-full flex items-center gap-2 px-3 py-2 rounded-full text-sm text-slate-700 data-[focus]:bg-slate-50">
+                                 <><span className="flex w-4 shrink-0 justify-center"><Download className="w-3.5 h-3.5" /></span><span>Download invoice</span></>
+                              </IconButton>
+                           </MenuItem>
+                           <MenuItem>
+                               <IconButton as="button" onClick={() => duplicateInvoice(inv)} className="w-full flex items-center gap-2 px-3 py-2 rounded-full text-sm text-slate-700 data-[focus]:bg-slate-50">
+                                  <><span className="flex w-4 shrink-0 justify-center"><AnimatedCopyIcon className="w-3.5 h-3.5" /></span><span>Duplicate</span></>
+                              </IconButton>
                           </MenuItem>
                           <MenuItem>
-                            <button
-                              onClick={() => deleteInvoice(inv.id)}
-                              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-rose-600 data-[focus]:bg-rose-50"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" aria-hidden /> Delete
-                            </button>
+                              <IconButton as="button" onClick={() => deleteInvoices([inv.id])} className="w-full flex items-center gap-2 px-3 py-2 rounded-full text-sm text-rose-600 data-[focus]:bg-rose-50">
+                                 <><span className="flex w-4 shrink-0 justify-center"><AnimatedTrashIcon className="w-3.5 h-3.5" /></span><span>Delete</span></>
+                             </IconButton>
                           </MenuItem>
                         </MenuItems>
                       </Menu>
@@ -368,13 +461,56 @@ export default function Invoices() {
               })}
               {pageRows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-slate-400 py-8">
+                  <TableCell colSpan={8} className="text-center text-slate-600 py-8">
                     No invoices match your filters.
                   </TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
+        </div>
+
+        <div className="sm:hidden divide-y divide-hairline">
+          {pageRows.map((inv) => {
+            const project = projectByInvoice.get(inv.id);
+            const isSelected = selected.has(inv.id);
+            return (
+              <div key={inv.id} className={`p-4 ${isSelected ? 'bg-slate-50' : ''}`}>
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select invoice ${inv.number}`}
+                    checked={isSelected}
+                    onChange={() => toggleRow(inv.id)}
+                    className="focus-ring mt-1 w-4 h-4 rounded accent-slate-900"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium truncate">{inv.number}</span>
+                      <StatusDot status={inv.status} />
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600 truncate">{inv.client}</p>
+                    {project && <p className="mt-1 text-xs text-slate-500 truncate">Project: {project.name}</p>}
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-500">
+                      <span>Amount <strong className="font-medium text-slate-700">{fmtMoney(inv.amount)}</strong></span>
+                      <span>Due <strong className="font-medium text-slate-700">{fmtDateLong(inv.due)}</strong></span>
+                    </div>
+                  </div>
+                  <Menu as="div" className="relative">
+                       <MenuButton className="focus-ring p-1.5 rounded-full text-slate-400 hover:bg-slate-100" aria-label={`More actions for ${inv.number}`}>
+                          <MoreHorizontal className="w-4 h-4" />
+                    </MenuButton>
+                      <MenuItems className="absolute top-full right-0 z-30 mt-2 w-52 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
+                             <MenuItem><IconButton as="button" onClick={() => downloadInvoices([inv])} className="w-full px-3 py-2 rounded-full text-left text-sm text-slate-700 data-[focus]:bg-slate-50"><><span className="mr-2 flex w-4 shrink-0 justify-center"><Download className="w-3.5 h-3.5" /></span><span>Download invoice</span></></IconButton></MenuItem>
+                             <MenuItem><IconButton as="button" onClick={() => duplicateInvoice(inv)} className="w-full px-3 py-2 rounded-full text-left text-sm text-slate-700 data-[focus]:bg-slate-50"><><span className="mr-2 flex w-4 shrink-0 justify-center"><AnimatedCopyIcon className="w-3.5 h-3.5" /></span><span>Duplicate</span></></IconButton></MenuItem>
+                            <MenuItem><IconButton as="button" onClick={() => deleteInvoices([inv.id])} className="w-full px-3 py-2 rounded-full text-left text-sm text-rose-600 data-[focus]:bg-rose-50"><><span className="mr-2 flex w-4 shrink-0 justify-center"><AnimatedTrashIcon className="w-3.5 h-3.5" /></span><span>Delete</span></></IconButton></MenuItem>
+                    </MenuItems>
+                  </Menu>
+                </div>
+              </div>
+            );
+          })}
+          {pageRows.length === 0 && <div className="px-4 py-8 text-center text-slate-600">No invoices match your filters.</div>}
         </div>
 
         {/* Bulk action bar */}
@@ -384,53 +520,62 @@ export default function Invoices() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 8 }}
-              className="flex flex-wrap items-center gap-3 px-4 py-3 border-t border-hairline bg-slate-50"
+              className="fixed bottom-14 inset-x-3 z-40 flex flex-wrap items-center gap-3 rounded-xl border border-hairline bg-slate-50 px-4 py-3 shadow-lg sm:static sm:rounded-none sm:border-x-0 sm:border-b-0 sm:shadow-none"
             >
               <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
                 {selected.size} selected
               </span>
               <div className="flex items-center gap-1.5">
-                <button className="focus-ring p-2 rounded-lg border border-hairline bg-white text-slate-500 hover:bg-slate-100" aria-label="Export selected">
-                  <Download className="w-4 h-4" aria-hidden />
-                </button>
-                <button className="focus-ring p-2 rounded-lg border border-hairline bg-white text-slate-500 hover:bg-slate-100" aria-label="Assign owner">
-                  <UserPlus className="w-4 h-4" aria-hidden />
-                </button>
-                <button
-                  onClick={() => selected.forEach((id) => duplicateInvoice(invoices.find((i) => i.id === id)!))}
-                  className="focus-ring p-2 rounded-lg border border-hairline bg-white text-slate-500 hover:bg-slate-100"
+                   <IconButton as="button" onClick={() => downloadInvoices(invoices.filter((inv) => selected.has(inv.id)))} className="focus-ring p-2 rounded-full border border-hairline bg-white text-slate-500 hover:bg-slate-100" aria-label="Export selected">
+                     <Download className="w-4 h-4" />
+                 </IconButton>
+                  <IconButton as="button" className="focus-ring p-2 rounded-full border border-hairline bg-white text-slate-500 hover:bg-slate-100" aria-label="Assign owner">
+                    <UserPlus className="w-4 h-4" />
+                 </IconButton>
+                 <IconButton as="button"
+                   onClick={() => {
+                     duplicateInvoices(invoices.filter((inv) => selected.has(inv.id)));
+                     setSelected(new Set());
+                   }}
+                   className="focus-ring p-2 rounded-full border border-hairline bg-white text-slate-500 hover:bg-slate-100"
                   aria-label="Duplicate selected"
                 >
-                  <Copy className="w-4 h-4" aria-hidden />
-                </button>
+                      <AnimatedCopyIcon className="w-4 h-4" />
+                 </IconButton>
               </div>
 
               <Menu as="div" className="relative">
-                <MenuButton className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-hairline bg-white text-sm font-medium text-slate-700 hover:bg-slate-50">
+                 <MenuButton className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-hairline bg-white text-sm font-medium text-slate-700 hover:bg-slate-50">
                   Mark as
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" aria-hidden />
+                   <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
                 </MenuButton>
-                <MenuItems anchor="top start" className="z-30 w-40 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
+                 <MenuItems className="absolute bottom-full left-0 z-30 mb-2 w-40 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
                   {STATUSES.map((s) => (
                     <MenuItem key={s}>
-                      <button
+               <IconButton as="button"
                         onClick={() => markSelectedAs(s)}
-                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-700 data-[focus]:bg-slate-50"
+                         className="w-full flex items-center gap-2 px-3 py-2 rounded-full text-sm text-slate-700 data-[focus]:bg-slate-50"
                       >
                         {s}
-                      </button>
+               </IconButton>
                     </MenuItem>
                   ))}
                 </MenuItems>
               </Menu>
 
-              <button
+               <IconButton as="button"
                 onClick={remind}
-                className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-hairline bg-white text-sm font-medium text-slate-700 hover:bg-slate-50"
+                 className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-hairline bg-white text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
-                <Bell className="w-4 h-4" aria-hidden />
-                Remind
-              </button>
+                     <><Bell className="w-4 h-4" /> Remind</>
+               </IconButton>
+
+               <IconButton as="button"
+                onClick={() => deleteInvoices([...selected])}
+                 className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-hairline bg-white text-sm font-medium text-rose-600 hover:bg-rose-50"
+              >
+                      <><AnimatedTrashIcon className="w-4 h-4" /> Delete</>
+               </IconButton>
             </motion.div>
           )}
         </AnimatePresence>
@@ -440,7 +585,7 @@ export default function Invoices() {
           <div className="flex items-center gap-2 text-sm text-slate-500">
             Rows per page
             <div className="w-20">
-              <Select value={rowsPerPage} onValueChange={(v) => { setRowsPerPage(v); setPage(1); }} enableClear={false}>
+               <Select className="rounded-full" value={rowsPerPage} onValueChange={(v) => { setRowsPerPage(v); setPage(1); }} enableClear={false}>
                 <SelectItem value="15">15</SelectItem>
                 <SelectItem value="25">25</SelectItem>
                 <SelectItem value="50">50</SelectItem>
@@ -453,24 +598,25 @@ export default function Invoices() {
               {currentPage}/{totalPages}
             </span>
             <div className="flex items-center gap-1">
-              <button onClick={() => setPage(1)} disabled={currentPage === 1} className="focus-ring p-1.5 rounded-lg border border-hairline disabled:opacity-40" aria-label="First page">
-                <ChevronsLeft className="w-4 h-4" aria-hidden />
-              </button>
-              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="focus-ring p-1.5 rounded-lg border border-hairline disabled:opacity-40" aria-label="Previous page">
-                <ChevronLeft className="w-4 h-4" aria-hidden />
-              </button>
-              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="focus-ring p-1.5 rounded-lg border border-hairline disabled:opacity-40" aria-label="Next page">
-                <ChevronRight className="w-4 h-4" aria-hidden />
-              </button>
-              <button onClick={() => setPage(totalPages)} disabled={currentPage === totalPages} className="focus-ring p-1.5 rounded-lg border border-hairline disabled:opacity-40" aria-label="Last page">
-                <ChevronsRight className="w-4 h-4" aria-hidden />
-              </button>
+                <IconButton as="button" onClick={() => setPage(1)} disabled={currentPage === 1} className="focus-ring p-1.5 rounded-full border border-hairline disabled:opacity-40" aria-label="First page"><ChevronLeft className="w-4 h-4" /></IconButton>
+                <IconButton as="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="focus-ring p-1.5 rounded-full border border-hairline disabled:opacity-40" aria-label="Previous page"><ChevronLeft className="w-4 h-4" /></IconButton>
+                <IconButton as="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="focus-ring p-1.5 rounded-full border border-hairline disabled:opacity-40" aria-label="Next page"><ChevronRight className="w-4 h-4" /></IconButton>
+                <IconButton as="button" onClick={() => setPage(totalPages)} disabled={currentPage === totalPages} className="focus-ring p-1.5 rounded-full border border-hairline disabled:opacity-40" aria-label="Last page"><ChevronRight className="w-4 h-4" /></IconButton>
             </div>
           </div>
         </div>
       </Card>
 
-      <Toast show={!!toast} text={toast} />
+      <CreateDialog open={createOpen} onClose={() => { setCreateOpen(false); setCreateError(''); }} title="New invoice" description="Create a draft invoice for a project.">
+        <form onSubmit={createInvoice} className="mt-5 space-y-4">
+          <div><label htmlFor="invoice-client" className="text-sm font-medium text-slate-700">Client *</label><select id="invoice-client" required value={newInvoice.client} onChange={(event) => setNewInvoice({ ...newInvoice, client: event.target.value, projectId: '' })} className={fieldClass}><option value="">Select a client</option>{CLIENTS.map((client) => <option key={client.id}>{client.name}</option>)}</select></div>
+          <div><label htmlFor="invoice-project" className="text-sm font-medium text-slate-700">Project *</label><select id="invoice-project" required value={newInvoice.projectId} onChange={(event) => setNewInvoice({ ...newInvoice, projectId: event.target.value })} className={fieldClass}><option value="">Select a project</option>{PROJECTS.filter((project) => !newInvoice.client || project.client === newInvoice.client).map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></div>
+          <div className="grid grid-cols-2 gap-3"><div><label htmlFor="invoice-amount" className="text-sm font-medium text-slate-700">Amount *</label><input id="invoice-amount" required min="0" type="number" value={newInvoice.amount} onChange={(event) => setNewInvoice({ ...newInvoice, amount: event.target.value })} className={fieldClass} /></div><div><label htmlFor="invoice-due" className="text-sm font-medium text-slate-700">Due date *</label><input id="invoice-due" required type="date" value={newInvoice.due} onChange={(event) => setNewInvoice({ ...newInvoice, due: event.target.value })} className={fieldClass} /></div></div>
+          {createError && <p className="text-sm text-rose-600" role="alert">{createError}</p>}
+           <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setCreateOpen(false)} className="focus-ring rounded-full px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button><button type="submit" className="focus-ring rounded-full bg-slate-900 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700">Create invoice</button></div>
+        </form>
+      </CreateDialog>
+      <Toast show={!!toast} text={toast} onUndo={undoInvoices ? undoDelete : undefined} />
     </div>
   );
 }

@@ -1,21 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Card, Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell, Select, SelectItem } from '@tremor/react';
 import { Menu, MenuButton, MenuItem, MenuItems, Popover, PopoverButton, PopoverPanel } from '@headlessui/react';
-import {
-  Search,
-  SlidersHorizontal,
-  ListFilter,
-  Copy,
-  MoreHorizontal,
-  ChevronsLeft,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsRight,
-  ChevronDown,
-  Trash2,
-} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { PROJECTS, CLIENTS, type Project, type ProjectStatus } from '../data';
+import { CLIENTS, type Project, type ProjectStatus } from '../data';
+import type { ProjectPageProps } from '../App';
 import { fmtDate, fmtMoney } from '../lib/format';
 import StatusBadge from '../components/StatusBadge';
 import Avatar from '../components/Avatar';
@@ -24,6 +12,12 @@ import ProgressWithLabel from '../components/ProgressWithLabel';
 import ProjectDrawer from '../components/ProjectDrawer';
 import SortIcon from '../components/SortIcon';
 import Toast from '../components/Toast';
+import CreateDialog from '../components/CreateDialog';
+import { IconButton } from '../components/motion/IconButton';
+import { AnimatedTrashIcon } from '../components/motion/AnimatedTrashIcon';
+import { AnimatedCopyIcon } from '../components/motion/icons/AnimatedCopyIcon';
+import { AnimatedNumber } from '../components/motion/AnimatedNumber';
+import { ChevronDown, ChevronLeft, ChevronRight, Filter, MoreHorizontal, Plus, Search, SlidersHorizontal } from 'lucide-react';
 
 type SortKey = 'name' | 'client' | 'status' | 'deadline' | 'value' | 'progress';
 type Pill = 'All' | ProjectStatus;
@@ -38,8 +32,9 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'client', label: 'Client' },
 ];
 
-export default function Projects() {
-  const [projects, setProjects] = useState<Project[]>(PROJECTS);
+const fieldClass = 'focus-ring mt-1 w-full rounded-full border border-hairline px-3 py-2 text-sm';
+
+export default function Projects({ projects, setProjects }: ProjectPageProps) {
   const [view, setView] = useState<'board' | 'table'>('board');
   const [pill, setPill] = useState<Pill>('All');
   const [search, setSearch] = useState('');
@@ -50,6 +45,12 @@ export default function Projects() {
   const [rowsPerPage, setRowsPerPage] = useState('15');
   const [page, setPage] = useState(1);
   const [toast, setToast] = useState('');
+  const [undoProjects, setUndoProjects] = useState<Project[] | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const [newProject, setNewProject] = useState({ name: '', client: '', value: '', deadline: '', status: 'To do' as ProjectStatus });
+  const [draggedProjectId, setDraggedProjectId] = useState<number | null>(null);
+  const [dragOverStatus, setDragOverStatus] = useState<ProjectStatus | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -78,7 +79,8 @@ export default function Projects() {
   function toggleRow(id: number) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
@@ -100,17 +102,51 @@ export default function Projects() {
   }
 
   function duplicateProject(p: Project) {
-    const maxId = Math.max(...projects.map((x) => x.id));
-    setProjects((prev) => [...prev, { ...p, id: maxId + 1, name: `${p.name} (copy)` }]);
+    duplicateProjects([p]);
   }
 
-  function deleteProject(id: number) {
-    setProjects((prev) => prev.filter((p) => p.id !== id));
+  function duplicateProjects(sourceProjects: Project[]) {
+    if (sourceProjects.length === 0) return;
+    setProjects((prev) => {
+      let nextId = Math.max(0, ...prev.map((p) => p.id)) + 1;
+      const duplicates = sourceProjects.map((p) => ({
+        ...p,
+        id: nextId++,
+        name: `${p.name} (copy)`,
+        status: 'To do' as const,
+        progress: 0,
+        paymentStatus: 'Draft' as const,
+        tasks: p.tasks.map((task) => ({ ...task, done: false })),
+      }));
+      return [...prev, ...duplicates];
+    });
+    setToast(`Duplicated ${sourceProjects.length} project${sourceProjects.length === 1 ? '' : 's'} as To do`);
+    setTimeout(() => setToast(''), 2200);
+  }
+
+  function deleteProjects(ids: number[]) {
+    if (ids.length === 0) return;
+    if (selected && ids.includes(selected.id)) setSelected(null);
+    setProjects((prev) => {
+      const removed = prev.filter((p) => ids.includes(p.id));
+      setUndoProjects(removed);
+      return prev.filter((p) => !ids.includes(p.id));
+    });
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      next.delete(id);
+      ids.forEach((id) => next.delete(id));
       return next;
     });
+    setTimeout(() => setUndoProjects(null), 5000);
+  }
+
+  function undoDelete() {
+    if (!undoProjects) return;
+    setProjects((prev) => {
+      const existingIds = new Set(prev.map((p) => p.id));
+      return [...prev, ...undoProjects.filter((p) => !existingIds.has(p.id))];
+    });
+    setUndoProjects(null);
   }
 
   function toggleTask(taskIndex: number) {
@@ -127,6 +163,69 @@ export default function Projects() {
     );
   }
 
+  function addTask(label: string) {
+    if (!selected) return;
+    const task = { label, done: false };
+    setProjects((prev) =>
+      prev.map((p) => (p.id === selected.id ? { ...p, tasks: [...p.tasks, task] } : p)),
+    );
+    setSelected((prev) => (prev ? { ...prev, tasks: [...prev.tasks, task] } : prev));
+  }
+
+  function removeTask(taskIndex: number) {
+    if (!selected) return;
+    setProjects((prev) => prev.map((project) => (
+      project.id === selected.id
+        ? { ...project, tasks: project.tasks.filter((_, index) => index !== taskIndex) }
+        : project
+    )));
+    setSelected((prev) => prev ? { ...prev, tasks: prev.tasks.filter((_, index) => index !== taskIndex) } : prev);
+    setToast('Task removed');
+    setTimeout(() => setToast(''), 2200);
+  }
+
+  function updateProjectStatus(id: number, status: ProjectStatus) {
+    setProjects((prev) => prev.map((project) => (project.id === id ? { ...project, status } : project)));
+    setSelected((prev) => (prev?.id === id ? { ...prev, status } : prev));
+    setToast(`Moved project to ${status}`);
+    setTimeout(() => setToast(''), 2200);
+  }
+
+  function handleDrop(status: ProjectStatus) {
+    if (draggedProjectId === null) return;
+    const project = projects.find((item) => item.id === draggedProjectId);
+    if (project && project.status !== status) updateProjectStatus(draggedProjectId, status);
+    setDraggedProjectId(null);
+    setDragOverStatus(null);
+  }
+
+  function createProject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!newProject.name.trim() || !newProject.client || !newProject.value || !newProject.deadline) {
+      setCreateError('Complete all required fields.');
+      return;
+    }
+    const createdName = newProject.name.trim();
+    const project: Project = {
+      id: Math.max(0, ...projects.map((item) => item.id)) + 1,
+      name: createdName,
+      client: newProject.client,
+      status: newProject.status,
+      value: Number(newProject.value),
+      progress: 0,
+      deadline: newProject.deadline,
+      paymentStatus: 'Draft',
+       tasks: [],
+       timeline: [],
+    };
+    setProjects((prev) => [...prev, project]);
+    setCreateOpen(false);
+    setCreateError('');
+    setNewProject({ name: '', client: '', value: '', deadline: '', status: 'To do' });
+    setToast('Project created');
+    setTimeout(() => setToast(''), 2200);
+  }
+
   const cols: { key: SortKey; label: string }[] = [
     { key: 'name', label: 'Project' },
     { key: 'client', label: 'Client' },
@@ -139,25 +238,30 @@ export default function Projects() {
   const allOnPageSelected = pageRows.length > 0 && pageRows.every((r) => selectedIds.has(r.id));
 
   return (
-    <div>
+          <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold">Projects</h1>
           <p className="text-sm text-slate-500">Everything you're working on.</p>
         </div>
-        <div className="flex bg-slate-100 rounded-lg p-0.5 text-sm">
+        <div className="flex items-center gap-3">
+            <IconButton as="button" onClick={() => setCreateOpen(true)} className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700">
+             <><Plus className="h-4 w-4" /> New project</>
+           </IconButton>
+          <div className="flex bg-slate-100 rounded-lg p-0.5 text-sm">
           <button
             onClick={() => setView('board')}
-            className={`focus-ring px-3 py-1.5 rounded-md font-medium ${view === 'board' ? 'bg-white shadow-sm' : 'text-slate-500'}`}
+             className={`focus-ring px-3 py-1.5 rounded-full font-medium ${view === 'board' ? 'bg-white shadow-sm' : 'text-slate-500'}`}
           >
             Board
           </button>
           <button
             onClick={() => setView('table')}
-            className={`focus-ring px-3 py-1.5 rounded-md font-medium ${view === 'table' ? 'bg-white shadow-sm' : 'text-slate-500'}`}
+             className={`focus-ring px-3 py-1.5 rounded-full font-medium ${view === 'table' ? 'bg-white shadow-sm' : 'text-slate-500'}`}
           >
             Table
           </button>
+          </div>
         </div>
       </div>
 
@@ -183,9 +287,9 @@ export default function Projects() {
             ))}
           </div>
 
-          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
             <div className="relative w-56">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="search"
                 value={search}
@@ -201,12 +305,13 @@ export default function Projects() {
 
             {/* Sort by */}
             <Popover className="relative">
-              <PopoverButton className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-hairline text-sm font-medium text-slate-700 hover:bg-slate-50">
-                <SlidersHorizontal className="w-4 h-4" aria-hidden />
-                Sort by
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" aria-hidden />
+               <PopoverButton className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-hairline text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  {() => <><SlidersHorizontal className="w-4 h-4" />
+                 Sort by
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                </>}
               </PopoverButton>
-              <PopoverPanel anchor="bottom end" className="z-30 mt-2 w-48 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
+               <PopoverPanel className="absolute top-full right-0 z-30 mt-2 w-48 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
                 {({ close }) => (
                   <>
                     {SORT_OPTIONS.map((opt) => (
@@ -216,7 +321,7 @@ export default function Projects() {
                           sortBy(opt.key);
                           close();
                         }}
-                        className="focus-ring w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm text-slate-700 hover:bg-slate-50"
+                         className="focus-ring w-full flex items-center justify-between px-3 py-2 rounded-full text-sm text-slate-700 hover:bg-slate-50"
                       >
                         {opt.label}
                         {sort.key === opt.key && <span className="text-xs text-slate-400">{sort.dir === 1 ? '▲' : '▼'}</span>}
@@ -229,14 +334,14 @@ export default function Projects() {
 
             {/* Filter */}
             <Popover className="relative">
-              <PopoverButton className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-hairline text-sm font-medium text-slate-700 hover:bg-slate-50">
-                <ListFilter className="w-4 h-4" aria-hidden />
-                Filter
-                {clientFilter && <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />}
+               <PopoverButton className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-hairline text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  {() => <><Filter className="w-4 h-4" />
+                 Filter
+                 {clientFilter && <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />}</>}
               </PopoverButton>
-              <PopoverPanel anchor="bottom end" className="z-30 mt-2 w-56 rounded-xl border border-hairline bg-white shadow-lg p-3">
+               <PopoverPanel className="absolute top-full right-0 z-30 mt-2 w-56 rounded-xl border border-hairline bg-white shadow-lg p-3">
                 <label className="block text-xs font-medium text-slate-500 mb-1.5">Client</label>
-                <Select value={clientFilter} onValueChange={(v) => { setClientFilter(v); setPage(1); }} placeholder="Any client" enableClear>
+                 <Select className="rounded-full" value={clientFilter} onValueChange={(v) => { setClientFilter(v); setPage(1); }} placeholder="Any client" enableClear>
                   {CLIENTS.map((c) => (
                     <SelectItem key={c.id} value={c.name}>
                       {c.name}
@@ -245,42 +350,79 @@ export default function Projects() {
                 </Select>
               </PopoverPanel>
             </Popover>
+            </div>
           </div>
-        </div>
-
         {view === 'board' ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4">
-            {STATUSES.map((status) => {
-              const items = sorted.filter((p) => p.status === status);
-              return (
-                <div key={status} className="bg-slate-100/60 rounded-xl p-3">
-                  <h3 className="text-sm font-semibold text-slate-600 mb-3 flex items-center justify-between">
-                    <span>{status}</span>
-                    <span className="text-xs bg-white rounded-full px-2 py-0.5 border border-hairline">
-                      {items.length}
-                    </span>
-                  </h3>
-                  <div className="space-y-2">
-                    {items.map((p) => (
-                      <motion.button
-                        key={p.id}
-                        onClick={() => setSelected(p)}
-                        whileHover={{ y: -2 }}
-                        className="focus-ring w-full text-left bg-white rounded-lg border border-hairline shadow-sm p-3 hover:shadow-md transition-shadow"
-                      >
-                        <div className="flex items-center gap-2">
-                          <ProjectIcon seed={p.id} />
-                          <p className="text-sm font-medium truncate">{p.name}</p>
-                        </div>
+             {STATUSES.map((status) => {
+               const items = sorted.filter((p) => p.status === status);
+               return (
+                 <div
+                   key={status}
+                   onDragOver={(event) => {
+                     event.preventDefault();
+                     event.dataTransfer.dropEffect = 'move';
+                     setDragOverStatus(status);
+                   }}
+                   onDragLeave={() => setDragOverStatus((current) => (current === status ? null : current))}
+                   onDrop={(event) => {
+                     event.preventDefault();
+                     handleDrop(status);
+                   }}
+                   className={`bg-slate-100/60 rounded-xl p-3 transition-colors ${dragOverStatus === status ? 'bg-emerald-50 ring-2 ring-emerald-200' : ''}`}
+                 >
+                   <h3 className="text-sm font-semibold text-slate-600 mb-3 flex items-center justify-between">
+                     <span>{status}</span>
+                     <span className="text-xs bg-white rounded-full px-2 py-0.5 border border-hairline">
+                        {items.length}
+                     </span>
+                   </h3>
+                   <div className="space-y-2">
+                     {items.map((p) => (
+                       <motion.div
+                         key={p.id}
+                         draggable
+                         onDragStart={(event) => {
+                           setDraggedProjectId(p.id);
+                           const dragEvent = event as unknown as globalThis.DragEvent;
+                           const dataTransfer = dragEvent.dataTransfer;
+                           if (!dataTransfer) return;
+                           dataTransfer.effectAllowed = 'move';
+                           dataTransfer.setData('text/plain', String(p.id));
+                         }}
+                         onDragEnd={() => {
+                           setDraggedProjectId(null);
+                           setDragOverStatus(null);
+                         }}
+                         whileHover={{ y: -2 }}
+                         className={`w-full bg-white rounded-lg border border-hairline shadow-sm p-3 hover:shadow-md transition-shadow ${draggedProjectId === p.id ? 'opacity-50' : ''}`}
+                       >
+                        <button onClick={() => setSelected(p)} className="focus-ring block w-full text-left">
+                          <div className="flex items-center gap-2">
+                            <ProjectIcon seed={p.id} />
+                            <p className="text-sm font-medium truncate">{p.name}</p>
+                          </div>
+                        </button>
                         <p className="text-xs text-slate-500 truncate mt-1">{p.client}</p>
                         <div className="flex items-center justify-between mt-2">
-                          <span className="text-xs text-slate-400">{fmtDate(p.deadline)}</span>
-                          <span className="text-xs font-semibold">{fmtMoney(p.value)}</span>
+                          <span className="text-xs text-slate-500">{fmtDate(p.deadline)}</span>
+                          <span className="text-xs font-semibold"><AnimatedNumber value={p.value} format={fmtMoney} duration={600} /></span>
                         </div>
                         <div className="mt-2">
-                          <ProgressWithLabel value={p.progress} />
+                          <ProgressWithLabel value={p.progress} animateLabel />
                         </div>
-                      </motion.button>
+                        <label className="block mt-2 text-xs font-medium text-slate-500" onClick={(event) => event.stopPropagation()}>
+                          Status
+                          <select
+                            value={p.status}
+                            aria-label={`Status for ${p.name}`}
+                            onChange={(event) => updateProjectStatus(p.id, event.target.value as ProjectStatus)}
+                             className="focus-ring mt-1 w-full rounded-full border border-hairline bg-white px-2 py-1.5 text-xs text-slate-700"
+                          >
+                            {STATUSES.map((option) => <option key={option}>{option}</option>)}
+                          </select>
+                        </label>
+                      </motion.div>
                     ))}
                   </div>
                 </div>
@@ -289,7 +431,7 @@ export default function Projects() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
+             <div className="hidden sm:block overflow-x-auto">
               <Table>
                 <TableHead className="bg-slate-50">
                   <TableRow>
@@ -305,16 +447,17 @@ export default function Projects() {
                     {cols.map((col) => (
                       <TableHeaderCell
                         key={col.key}
-                        tabIndex={0}
-                        onClick={() => sortBy(col.key)}
-                        onKeyDown={(e) => e.key === 'Enter' && sortBy(col.key)}
                         aria-sort={sort.key === col.key ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}
-                        className="focus-ring cursor-pointer select-none"
+                        className="select-none"
                       >
-                        <span className="inline-flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => sortBy(col.key)}
+                          className="focus-ring inline-flex items-center gap-1 rounded"
+                        >
                           {col.label}
                           <SortIcon active={sort.key === col.key} dir={sort.dir} />
-                        </span>
+                        </button>
                       </TableHeaderCell>
                     ))}
                     <TableHeaderCell className="w-10" />
@@ -324,7 +467,11 @@ export default function Projects() {
                   {pageRows.map((p) => {
                     const isSelected = selectedIds.has(p.id);
                     return (
-                      <TableRow key={p.id} className={`hover:bg-slate-50 ${isSelected ? 'bg-slate-50' : ''}`}>
+                      <TableRow
+                        key={p.id}
+                        onClick={() => setSelected(p)}
+                        className={`hover:bg-slate-50 ${isSelected ? 'bg-slate-50' : ''}`}
+                      >
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
@@ -334,51 +481,45 @@ export default function Projects() {
                             className="focus-ring w-4 h-4 rounded accent-slate-900"
                           />
                         </TableCell>
-                        <TableCell className="font-medium cursor-pointer" onClick={() => setSelected(p)}>
+                        <TableCell className="font-medium cursor-pointer">
                           <div className="flex items-center gap-2">
                             <ProjectIcon seed={p.id} />
                             <span className="truncate max-w-[200px]">{p.name}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="cursor-pointer" onClick={() => setSelected(p)}>
+                        <TableCell className="cursor-pointer">
                           <div className="flex items-center gap-2">
                             <Avatar name={p.client} />
                             {p.client}
                           </div>
                         </TableCell>
-                        <TableCell className="cursor-pointer" onClick={() => setSelected(p)}>
+                        <TableCell className="cursor-pointer">
                           <StatusBadge status={p.status} />
                         </TableCell>
-                        <TableCell className="text-slate-600 cursor-pointer" onClick={() => setSelected(p)}>
+                        <TableCell className="text-slate-600 cursor-pointer">
                           {fmtDate(p.deadline)}
                         </TableCell>
-                        <TableCell className="font-medium cursor-pointer" onClick={() => setSelected(p)}>
+                        <TableCell className="font-medium cursor-pointer">
                           {fmtMoney(p.value)}
                         </TableCell>
-                        <TableCell className="w-36 cursor-pointer" onClick={() => setSelected(p)}>
+                        <TableCell className="w-36 cursor-pointer">
                           <ProgressWithLabel value={p.progress} />
                         </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <Menu as="div" className="relative">
-                            <MenuButton className="focus-ring p-1.5 rounded-lg text-slate-400 hover:bg-slate-100" aria-label={`More actions for ${p.name}`}>
-                              <MoreHorizontal className="w-4 h-4" aria-hidden />
+                             <MenuButton className="focus-ring p-1.5 rounded-full text-slate-400 hover:bg-slate-100" aria-label={`More actions for ${p.name}`}>
+                              <MoreHorizontal className="w-4 h-4" />
                             </MenuButton>
-                            <MenuItems anchor="bottom end" className="z-30 w-40 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
+                             <MenuItems className="absolute top-full right-0 z-30 mt-2 w-40 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
                               <MenuItem>
-                                <button
-                                  onClick={() => duplicateProject(p)}
-                                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-700 data-[focus]:bg-slate-50"
-                                >
-                                  <Copy className="w-3.5 h-3.5" aria-hidden /> Duplicate
-                                </button>
+                                  <IconButton as="button" onClick={() => duplicateProject(p)} className="w-full flex items-center gap-2 px-3 py-2 rounded-full text-sm text-slate-700 data-[focus]:bg-slate-50">
+                                       <><AnimatedCopyIcon className="w-3.5 h-3.5" /> Duplicate</>
+                                 </IconButton>
                               </MenuItem>
                               <MenuItem>
-                                <button
-                                  onClick={() => deleteProject(p.id)}
-                                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-rose-600 data-[focus]:bg-rose-50"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" aria-hidden /> Delete
-                                </button>
+                                  <IconButton as="button" onClick={() => deleteProjects([p.id])} className="w-full flex items-center gap-2 px-3 py-2 rounded-full text-sm text-rose-600 data-[focus]:bg-rose-50">
+                                       <><AnimatedTrashIcon className="w-3.5 h-3.5" /> Delete</>
+                                 </IconButton>
                               </MenuItem>
                             </MenuItems>
                           </Menu>
@@ -388,63 +529,104 @@ export default function Projects() {
                   })}
                   {pageRows.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-slate-400 py-8">
+                      <TableCell colSpan={8} className="text-center text-slate-500 py-8">
                         No projects match your filters.
                       </TableCell>
                     </TableRow>
                   )}
                 </TableBody>
-              </Table>
-            </div>
+               </Table>
+             </div>
 
-            {/* Bulk action bar */}
+             <div className="sm:hidden divide-y divide-hairline">
+               {pageRows.map((p) => {
+                 const isSelected = selectedIds.has(p.id);
+                 return (
+                   <div key={p.id} className={`p-4 ${isSelected ? 'bg-slate-50' : ''}`}>
+                     <div className="flex items-start gap-3">
+                       <input
+                         type="checkbox"
+                         aria-label={`Select ${p.name}`}
+                         checked={isSelected}
+                         onChange={() => toggleRow(p.id)}
+                         className="focus-ring mt-1 w-4 h-4 rounded accent-slate-900"
+                       />
+                       <button onClick={() => setSelected(p)} className="focus-ring min-w-0 flex-1 text-left">
+                         <div className="flex items-center gap-2">
+                           <ProjectIcon seed={p.id} />
+                           <span className="font-medium truncate">{p.name}</span>
+                         </div>
+                         <p className="mt-1 text-sm text-slate-500 truncate">{p.client}</p>
+                         <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-500">
+                           <span>Due <strong className="font-medium text-slate-700">{fmtDate(p.deadline)}</strong></span>
+                           <span>Value <strong className="font-medium text-slate-700">{fmtMoney(p.value)}</strong></span>
+                         </div>
+                         <div className="mt-3"><ProgressWithLabel value={p.progress} /></div>
+                         <div className="mt-2"><StatusBadge status={p.status} /></div>
+                       </button>
+                       <Menu as="div" className="relative">
+                            <MenuButton className="focus-ring p-1.5 rounded-full text-slate-400 hover:bg-slate-100" aria-label={`More actions for ${p.name}`}>
+                                <MoreHorizontal className="w-4 h-4" />
+                         </MenuButton>
+                          <MenuItems className="absolute top-full right-0 z-30 mt-2 w-40 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
+                             <MenuItem><button onClick={() => duplicateProject(p)} className="w-full px-3 py-2 rounded-full text-left text-sm text-slate-700 data-[focus]:bg-slate-50"><AnimatedCopyIcon className="mr-2 inline w-3.5 h-3.5" />Duplicate</button></MenuItem>
+                              <MenuItem><button onClick={() => deleteProjects([p.id])} className="w-full px-3 py-2 rounded-full text-left text-sm text-rose-600 data-[focus]:bg-rose-50"><AnimatedTrashIcon className="mr-2 inline w-3.5 h-3.5" />Delete</button></MenuItem>
+                         </MenuItems>
+                       </Menu>
+                     </div>
+                   </div>
+                 );
+               })}
+                {pageRows.length === 0 && <div className="px-4 py-8 text-center text-slate-500">No projects match your filters.</div>}
+             </div>
+
+             {/* Bulk action bar */}
             <AnimatePresence>
               {selectedIds.size > 0 && (
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 8 }}
-                  className="flex flex-wrap items-center gap-3 px-4 py-3 border-t border-hairline bg-slate-50"
+                  className="fixed inset-x-0 bottom-16 sm:bottom-0 z-20 flex flex-wrap items-center gap-3 px-4 py-3 border-t border-hairline bg-slate-50 shadow-lg"
                 >
                   <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
                     {selectedIds.size} selected
                   </span>
-                  <button
-                    onClick={() => selectedIds.forEach((id) => duplicateProject(projects.find((p) => p.id === id)!))}
-                    className="focus-ring p-2 rounded-lg border border-hairline bg-white text-slate-500 hover:bg-slate-100"
+                   <IconButton as="button"
+                     onClick={() => duplicateProjects(projects.filter((p) => selectedIds.has(p.id)))}
+                     className="focus-ring p-2 rounded-full border border-hairline bg-white text-slate-500 hover:bg-slate-100"
                     aria-label="Duplicate selected"
                   >
-                    <Copy className="w-4 h-4" aria-hidden />
-                  </button>
+                         <AnimatedCopyIcon className="w-4 h-4" />
+                   </IconButton>
 
                   <Menu as="div" className="relative">
-                    <MenuButton className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-hairline bg-white text-sm font-medium text-slate-700 hover:bg-slate-50">
+                     <MenuButton className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-hairline bg-white text-sm font-medium text-slate-700 hover:bg-slate-50">
                       Mark as
-                      <ChevronDown className="w-3.5 h-3.5 text-slate-400" aria-hidden />
+                       <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
                     </MenuButton>
-                    <MenuItems anchor="top start" className="z-30 w-40 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
+                     <MenuItems className="absolute bottom-full left-0 z-30 mb-2 w-40 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
                       {STATUSES.map((s) => (
                         <MenuItem key={s}>
-                          <button
+                   <IconButton as="button"
                             onClick={() => markSelectedAs(s)}
-                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-700 data-[focus]:bg-slate-50"
+                             className="w-full flex items-center gap-2 px-3 py-2 rounded-full text-sm text-slate-700 data-[focus]:bg-slate-50"
                           >
                             {s}
-                          </button>
+                          </IconButton>
                         </MenuItem>
                       ))}
                     </MenuItems>
                   </Menu>
 
-                  <button
+                   <IconButton as="button"
                     onClick={() => {
-                      selectedIds.forEach((id) => deleteProject(id));
+                       deleteProjects([...selectedIds]);
                     }}
-                    className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-hairline bg-white text-sm font-medium text-rose-600 hover:bg-rose-50"
+                     className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border border-hairline bg-white text-sm font-medium text-rose-600 hover:bg-rose-50"
                   >
-                    <Trash2 className="w-4 h-4" aria-hidden />
-                    Delete
-                  </button>
+                           <><AnimatedTrashIcon className="w-4 h-4" /> Delete</>
+                   </IconButton>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -454,7 +636,7 @@ export default function Projects() {
               <div className="flex items-center gap-2 text-sm text-slate-500">
                 Rows per page
                 <div className="w-20">
-                  <Select value={rowsPerPage} onValueChange={(v) => { setRowsPerPage(v); setPage(1); }} enableClear={false}>
+                   <Select className="rounded-full" value={rowsPerPage} onValueChange={(v) => { setRowsPerPage(v); setPage(1); }} enableClear={false}>
                     <SelectItem value="15">15</SelectItem>
                     <SelectItem value="25">25</SelectItem>
                     <SelectItem value="50">50</SelectItem>
@@ -467,18 +649,10 @@ export default function Projects() {
                   {currentPage}/{totalPages}
                 </span>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => setPage(1)} disabled={currentPage === 1} className="focus-ring p-1.5 rounded-lg border border-hairline disabled:opacity-40" aria-label="First page">
-                    <ChevronsLeft className="w-4 h-4" aria-hidden />
-                  </button>
-                  <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="focus-ring p-1.5 rounded-lg border border-hairline disabled:opacity-40" aria-label="Previous page">
-                    <ChevronLeft className="w-4 h-4" aria-hidden />
-                  </button>
-                  <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="focus-ring p-1.5 rounded-lg border border-hairline disabled:opacity-40" aria-label="Next page">
-                    <ChevronRight className="w-4 h-4" aria-hidden />
-                  </button>
-                  <button onClick={() => setPage(totalPages)} disabled={currentPage === totalPages} className="focus-ring p-1.5 rounded-lg border border-hairline disabled:opacity-40" aria-label="Last page">
-                    <ChevronsRight className="w-4 h-4" aria-hidden />
-                  </button>
+                 <IconButton as="button" onClick={() => setPage(1)} disabled={currentPage === 1} className="focus-ring p-1.5 rounded-full border border-hairline disabled:opacity-40" aria-label="First page"><ChevronLeft className="w-4 h-4" /></IconButton>
+                 <IconButton as="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="focus-ring p-1.5 rounded-full border border-hairline disabled:opacity-40" aria-label="Previous page"><ChevronLeft className="w-4 h-4" /></IconButton>
+                 <IconButton as="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="focus-ring p-1.5 rounded-full border border-hairline disabled:opacity-40" aria-label="Next page"><ChevronRight className="w-4 h-4" /></IconButton>
+                 <IconButton as="button" onClick={() => setPage(totalPages)} disabled={currentPage === totalPages} className="focus-ring p-1.5 rounded-full border border-hairline disabled:opacity-40" aria-label="Last page"><ChevronRight className="w-4 h-4" /></IconButton>
                 </div>
               </div>
             </div>
@@ -486,8 +660,45 @@ export default function Projects() {
         )}
       </Card>
 
-      <ProjectDrawer project={selected} onClose={() => setSelected(null)} onToggleTask={toggleTask} />
+      <ProjectDrawer project={selected} onClose={() => setSelected(null)} onToggleTask={toggleTask} onAddTask={addTask} onRemoveTask={removeTask} />
+      <CreateDialog open={createOpen} onClose={() => { setCreateOpen(false); setCreateError(''); }} title="New project" description="Add a project to your board.">
+        <form onSubmit={createProject} className="mt-5 space-y-4">
+          <div>
+            <label htmlFor="project-name" className="text-sm font-medium text-slate-700">Project name *</label>
+            <input id="project-name" required value={newProject.name} onChange={(event) => setNewProject({ ...newProject, name: event.target.value })} className={fieldClass} />
+          </div>
+          <div>
+            <label htmlFor="project-client" className="text-sm font-medium text-slate-700">Client *</label>
+            <select id="project-client" required value={newProject.client} onChange={(event) => setNewProject({ ...newProject, client: event.target.value })} className={fieldClass}>
+              <option value="">Select a client</option>
+              {CLIENTS.map((client) => <option key={client.id}>{client.name}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label htmlFor="project-value" className="text-sm font-medium text-slate-700">Value *</label><input id="project-value" required min="0" type="number" value={newProject.value} onChange={(event) => setNewProject({ ...newProject, value: event.target.value })} className={fieldClass} /></div>
+            <div><label htmlFor="project-deadline" className="text-sm font-medium text-slate-700">Deadline *</label><input id="project-deadline" required type="date" value={newProject.deadline} onChange={(event) => setNewProject({ ...newProject, deadline: event.target.value })} className={fieldClass} /></div>
+          </div>
+          <div><label htmlFor="project-status" className="text-sm font-medium text-slate-700">Status</label><select id="project-status" value={newProject.status} onChange={(event) => setNewProject({ ...newProject, status: event.target.value as ProjectStatus })} className={fieldClass}>{STATUSES.map((status) => <option key={status}>{status}</option>)}</select></div>
+          {createError && <p className="text-sm text-rose-600" role="alert">{createError}</p>}
+           <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setCreateOpen(false)} className="focus-ring rounded-full px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button><button type="submit" className="focus-ring rounded-full bg-slate-900 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700">Create project</button></div>
+        </form>
+      </CreateDialog>
       <Toast show={!!toast} text={toast} />
+      <AnimatePresence>
+        {undoProjects && (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            className="fixed bottom-20 sm:bottom-6 left-6 z-50 flex items-center gap-3 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg"
+            role="status"
+            aria-live="polite"
+          >
+            Deleted {undoProjects.length} project{undoProjects.length === 1 ? '' : 's'}.
+            <button onClick={undoDelete} className="focus-ring font-semibold underline underline-offset-2">Undo</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

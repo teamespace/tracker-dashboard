@@ -1,10 +1,11 @@
 import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from '@headlessui/react';
 import { Fragment } from 'react';
-import { X } from 'lucide-react';
 import type { Client } from '../data';
 import { fmtDate, fmtMoney } from '../lib/format';
 import StatusBadge from './StatusBadge';
 import Avatar from './Avatar';
+import { IconButton } from './motion/IconButton';
+import { X } from 'lucide-react';
 
 export default function ClientPanel({ client, onClose }: { client: Client | null; onClose: () => void }) {
   return (
@@ -22,17 +23,17 @@ export default function ClientPanel({ client, onClose }: { client: Client | null
           <div className="fixed inset-0 bg-slate-900/40" aria-hidden="true" />
         </TransitionChild>
 
-        <div className="fixed inset-0 flex items-center justify-center p-4">
+        <div className="fixed inset-0 flex items-end justify-center p-0 sm:items-center sm:p-4">
           <TransitionChild
             as={Fragment}
             enter="ease-out duration-200"
-            enterFrom="opacity-0 scale-95"
-            enterTo="opacity-100 scale-100"
+            enterFrom="opacity-0 translate-y-full sm:scale-95 sm:translate-y-0"
+            enterTo="opacity-100 translate-y-0 sm:scale-100"
             leave="ease-in duration-150"
-            leaveFrom="opacity-100 scale-100"
-            leaveTo="opacity-0 scale-95"
+            leaveFrom="opacity-100 translate-y-0 sm:scale-100"
+            leaveTo="opacity-0 translate-y-full sm:scale-95 sm:translate-y-0"
           >
-            <DialogPanel className="w-full max-w-sm max-h-[85vh] overflow-y-auto bg-white rounded-2xl border border-hairline shadow-xl p-6">
+            <DialogPanel className="w-full max-w-sm max-h-[90dvh] sm:max-h-[85vh] overflow-y-auto overscroll-contain bg-white rounded-t-2xl sm:rounded-2xl border border-hairline shadow-xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-6">
               {client && (
                 <>
                   <div className="flex items-start justify-between mb-4">
@@ -43,13 +44,14 @@ export default function ClientPanel({ client, onClose }: { client: Client | null
                         <p className="text-sm text-slate-500">{client.company}</p>
                       </div>
                     </div>
-                    <button
+                    <IconButton
+                      as="button"
                       onClick={onClose}
                       aria-label="Close dialog"
-                      className="focus-ring p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"
+                       className="focus-ring p-1.5 rounded-full text-slate-400 hover:bg-slate-100"
                     >
-                      <X className="w-5 h-5" aria-hidden />
-                    </button>
+                       <X className="w-5 h-5" />
+                    </IconButton>
                   </div>
                   <StatusBadge status={client.status} />
                   <dl className="mt-4 space-y-3 text-sm">

@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Card, BarChart, DonutChart, Select, SelectItem } from '@tremor/react';
-import { Calendar } from 'lucide-react';
 import { EARNINGS_BY_MONTH, INVOICES, CLIENTS } from '../data';
 import { fmtMoney } from '../lib/format';
 import SplitBarStat from '../components/SplitBarStat';
+import { AnimatedNumber } from '../components/motion/AnimatedNumber';
+import { Calendar } from 'lucide-react';
+import { useDataVizReady } from '../components/motion/dataViz';
 
 const CLIENT_COLORS = ['emerald', 'cyan', 'lime', 'amber', 'violet', 'blue'];
 const CLIENT_BARS = ['bg-emerald-500', 'bg-cyan-500', 'bg-lime-500', 'bg-amber-500', 'bg-violet-500', 'bg-blue-500'];
@@ -11,6 +13,8 @@ const CLIENT_BARS = ['bg-emerald-500', 'bg-cyan-500', 'bg-lime-500', 'bg-amber-5
 export default function Earnings() {
   const [range, setRange] = useState('12');
   const [client, setClient] = useState('');
+  const monthlyChartReady = useDataVizReady(120);
+  const clientChartReady = useDataVizReady(260);
 
   const ranged = useMemo(() => EARNINGS_BY_MONTH.slice(-parseInt(range, 10)), [range]);
 
@@ -45,7 +49,7 @@ export default function Earnings() {
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-slate-400 shrink-0" aria-hidden />
+          <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
           <div className="w-44">
             <Select value={range} onValueChange={setRange} enableClear={false}>
               <SelectItem value="12">Last 12 months</SelectItem>
@@ -69,17 +73,17 @@ export default function Earnings() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
         <Card>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total earned</p>
-          <p className="text-2xl font-bold mt-1">{fmtMoney(totalEarned)}</p>
+          <p className="text-2xl font-bold mt-1"><AnimatedNumber value={totalEarned} format={fmtMoney} duration={600} /></p>
           <p className="text-xs text-slate-400 mt-1">Last {range} months</p>
         </Card>
         <Card>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Avg. per month</p>
-          <p className="text-2xl font-bold mt-1">{fmtMoney(avgPerMonth)}</p>
+          <p className="text-2xl font-bold mt-1"><AnimatedNumber value={avgPerMonth} format={fmtMoney} duration={600} /></p>
           <p className="text-xs text-slate-400 mt-1">Across {ranged.length} months</p>
         </Card>
         <Card>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Hours logged</p>
-          <p className="text-2xl font-bold mt-1">{totalHours.toLocaleString('en-US')}h</p>
+          <p className="text-2xl font-bold mt-1"><AnimatedNumber value={totalHours} format={(v) => Math.round(v).toLocaleString('en-US') + 'h'} duration={600} /></p>
           <p className="text-xs text-slate-400 mt-1">Last {range} months</p>
         </Card>
       </div>
@@ -87,30 +91,36 @@ export default function Earnings() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
         <Card>
           <h2 className="text-base font-semibold mb-3">Monthly earnings</h2>
-          <BarChart
-            className="h-56"
-            data={ranged}
-            index="month"
-            categories={['earnings']}
-            colors={['emerald']}
-            valueFormatter={fmtMoney}
-            showLegend={false}
-          />
+           <div className="h-56">
+             {monthlyChartReady && <BarChart
+               className="h-56"
+               data={ranged}
+               index="month"
+               categories={['earnings']}
+               colors={['emerald']}
+               valueFormatter={fmtMoney}
+               showLegend={false}
+               showAnimation
+             />}
+           </div>
         </Card>
 
         <Card>
           <h2 className="text-base font-semibold">Income by client</h2>
           <p className="mt-1 text-sm text-slate-500">Paid invoices, top 6 clients.</p>
           <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-6 items-center">
-            <DonutChart
-              className="h-40"
-              data={byClient}
-              category="amount"
-              index="name"
-              valueFormatter={fmtMoney}
-              colors={CLIENT_COLORS}
-              showTooltip={false}
-            />
+             <div className="h-40">
+               {clientChartReady && <DonutChart
+                 className="h-40"
+                 data={byClient}
+                 category="amount"
+                 index="name"
+                 valueFormatter={fmtMoney}
+                 colors={CLIENT_COLORS}
+                 showTooltip={false}
+                 showAnimation
+               />}
+             </div>
             <ul className="space-y-2.5">
               {byClient.map((c, i) => (
                 <li key={c.name} className="flex gap-3">
@@ -118,9 +128,9 @@ export default function Earnings() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="text-sm text-slate-700 truncate">{c.name}</span>
-                      <span className="text-sm font-medium text-slate-800 shrink-0">{fmtMoney(c.amount)}</span>
+                       <span className="text-sm font-medium text-slate-800 shrink-0"><AnimatedNumber value={c.amount} format={fmtMoney} duration={600} /></span>
                     </div>
-                    <p className="text-xs text-slate-400">{((c.amount / byClientTotal) * 100).toFixed(0)}%</p>
+                    <p className="text-xs text-slate-400"><AnimatedNumber value={(c.amount / byClientTotal) * 100} format={(v) => v.toFixed(0) + '%'} duration={600} /></p>
                   </div>
                 </li>
               ))}
@@ -132,7 +142,7 @@ export default function Earnings() {
 
       <SplitBarStat
         title="Paid vs. outstanding"
-        value={fmtMoney(paid.paid + paid.outstanding)}
+         value={<AnimatedNumber value={paid.paid + paid.outstanding} format={fmtMoney} duration={600} />}
         segments={[
           { label: 'Paid', sublabel: fmtMoney(paid.paid), amount: paid.paid, bar: 'bg-teal-400', dot: 'bg-teal-400' },
           { label: 'Outstanding', sublabel: fmtMoney(paid.outstanding), amount: paid.outstanding, bar: 'bg-violet-500', dot: 'bg-violet-500' },

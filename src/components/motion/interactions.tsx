@@ -8,7 +8,7 @@
 // `motion/react`, since that's what's installed) and container classNames (their dark
 // showcase chrome -> our light card theme) were adapted. The animation logic/values are
 // untouched.
-import { motion, AnimatePresence, type Variants } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Search, X, Bell, BellRing } from 'lucide-react';
 import { useState } from 'react';
 
@@ -65,7 +65,7 @@ export function NotifBell({ hasUnread }: { hasUnread: boolean }) {
       onMouseLeave={() => setIsHovered(false)}
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.96 }}
-      className="focus-ring relative flex items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 transition-colors"
+      className="focus-ring relative flex items-center justify-center rounded-full p-2 text-slate-500 hover:bg-slate-100 transition-colors"
     >
       <NotifBellIcon hasUnread={hasUnread} isHovered={isHovered} />
     </motion.button>
@@ -128,25 +128,8 @@ export function SearchMorphInput({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         aria-label={placeholder}
-        className="focus-ring w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-hairline bg-slate-50 focus:bg-white transition-colors"
+         className="focus-ring w-full pl-9 pr-3 py-2 text-sm rounded-full border border-hairline bg-slate-50 focus:bg-white transition-colors"
       />
     </div>
   );
 }
-
-// Stagger reveal for list-y content (activity feed, deadlines, table rows).
-export const staggerContainer: Variants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.05 } },
-};
-export const staggerItem: Variants = {
-  hidden: { opacity: 0, y: 6 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.2 } },
-};
-
-// Page-switch transition (fade + slight rise), used when routing between the 6 pages.
-export const pageTransition: Variants = {
-  initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.18 } },
-  exit: { opacity: 0, y: -8, transition: { duration: 0.12 } },
-};

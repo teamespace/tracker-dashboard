@@ -19,7 +19,7 @@ export default function NotificationsMenu() {
         onMouseLeave={() => setIsHovered(false)}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.96 }}
-        className="focus-ring relative flex items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 transition-colors"
+        className="focus-ring relative flex items-center justify-center rounded-full p-2 text-slate-500 hover:bg-slate-100 transition-colors"
       >
         <NotifBellIcon hasUnread={hasUnread} isHovered={isHovered} />
       </PopoverButton>

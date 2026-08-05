@@ -10,18 +10,18 @@ import {
   TableBody,
   TableCell,
 } from '@tremor/react';
-import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Filter, FolderKanban, Users, Clock, ArrowUpRight, Copy, Trash2, MoreHorizontal } from 'lucide-react';
-import { PROJECTS, EARNINGS_BY_MONTH, INVOICES, KPIS, GOAL, type InvoiceStatus, type Project } from '../data';
+import { motion, useReducedMotion } from 'motion/react';
+import { EARNINGS_BY_MONTH, INVOICES, KPIS, GOAL, type InvoiceStatus } from '../data';
+import type { ProjectPageProps } from '../App';
 import { fmtMoney, fmtDate } from '../lib/format';
 import StatusBadge from '../components/StatusBadge';
 import Avatar from '../components/Avatar';
 import ProjectIcon from '../components/ProjectIcon';
 import ProgressWithLabel from '../components/ProgressWithLabel';
 import SortIcon from '../components/SortIcon';
-import Toast from '../components/Toast';
-import { staggerContainer, staggerItem } from '../components/motion/interactions';
+import { AnimatedNumber } from '../components/motion/AnimatedNumber';
+import { Calendar, Folder, Users } from 'lucide-react';
+import { useDataVizReady } from '../components/motion/dataViz';
 
 const INVOICE_STATUS_ORDER: InvoiceStatus[] = ['Paid', 'Sent', 'Overdue', 'Draft'];
 const INVOICE_STATUS_COLORS = ['emerald', 'blue', 'rose', 'gray'];
@@ -29,17 +29,26 @@ const INVOICE_STATUS_BARS = ['bg-emerald-500', 'bg-blue-500', 'bg-rose-500', 'bg
 const TODAY = new Date('2026-08-02T00:00:00');
 
 // Style: title, big number, then each breakdown line gets its own full-width bar (ref: "Total tokens").
-function StatRow({ label, value, pct, color }: { label: string; value: string; pct: number; color: string }) {
+function StatRow({ label, value, pct, color, delay = 0 }: { label: string; value: number; pct: number; color: string; delay?: number }) {
+  const reduced = useReducedMotion();
   return (
     <div>
       <div className="flex items-center justify-between text-sm mb-1.5">
         <span className="text-slate-500">{label}</span>
         <span className="font-semibold text-slate-800">
-          {value} <span className="font-normal text-slate-400">({pct.toFixed(0)}%)</span>
+           <AnimatedNumber value={value} format={fmtMoney} duration={600} />{' '}
+           <span className="font-normal text-slate-500">(
+             <AnimatedNumber value={pct} format={(v) => v.toFixed(0) + '%'} duration={600} />
+           )</span>
         </span>
       </div>
       <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+        <motion.div
+          className={`h-full rounded-full ${color}`}
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={reduced ? { duration: 0 } : { duration: 0.42, delay, ease: 'easeOut' }}
+        />
       </div>
     </div>
   );
@@ -54,11 +63,11 @@ function PendingInvoicesCard() {
     <Card className="h-full flex flex-col justify-between">
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Pending invoices</p>
-        <p className="text-3xl font-bold mt-1">{fmtMoney(KPIS.pendingInvoices)}</p>
+         <p className="text-3xl font-bold mt-1"><AnimatedNumber value={KPIS.pendingInvoices} format={fmtMoney} duration={600} /></p>
       </div>
       <div className="space-y-3">
-        <StatRow label="Sent" value={fmtMoney(sentAmount)} pct={(sentAmount / total) * 100} color="bg-teal-400" />
-        <StatRow label="Overdue" value={fmtMoney(overdueAmount)} pct={(overdueAmount / total) * 100} color="bg-violet-500" />
+          <StatRow label="Sent" value={sentAmount} pct={(sentAmount / total) * 100} color="bg-teal-400" delay={0.08} />
+          <StatRow label="Overdue" value={overdueAmount} pct={(overdueAmount / total) * 100} color="bg-violet-500" delay={0.16} />
       </div>
     </Card>
   );
@@ -66,6 +75,7 @@ function PendingInvoicesCard() {
 
 // Style 3 (ref: "Outstanding balance") — title, big number, shared bar + legend, divider, highlighted next-payment panel.
 function EarningsCard() {
+  const reduced = useReducedMotion();
   const goalPct = Math.min(100, Math.round((GOAL.current / GOAL.target) * 100));
   const remaining = GOAL.target - GOAL.current;
   const nextInvoice = useMemo(
@@ -77,19 +87,19 @@ function EarningsCard() {
     <Card className="h-full flex flex-col justify-between">
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Earnings this month</p>
-        <p className="text-3xl font-bold mt-1">{fmtMoney(GOAL.current)}</p>
+        <p className="text-3xl font-bold mt-1"><AnimatedNumber value={GOAL.current} format={fmtMoney} duration={600} /></p>
         <div className="flex h-2 rounded-full overflow-hidden bg-slate-100 mt-4 mb-2.5">
-          <div className="bg-teal-400" style={{ width: `${goalPct}%` }} />
-          <div className="bg-violet-500" style={{ width: `${100 - goalPct}%` }} />
+           <motion.div className="bg-teal-400" initial={{ width: 0 }} animate={{ width: `${goalPct}%` }} transition={reduced ? { duration: 0 } : { duration: 0.42, delay: 0.12, ease: 'easeOut' }} />
+           <motion.div className="bg-violet-500" initial={{ width: 0 }} animate={{ width: `${100 - goalPct}%` }} transition={reduced ? { duration: 0 } : { duration: 0.42, delay: 0.18, ease: 'easeOut' }} />
         </div>
         <div className="flex items-center gap-4 text-xs text-slate-500">
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-sm bg-teal-400" />
-            <strong className="text-slate-700 font-semibold">{fmtMoney(GOAL.current)}</strong> Earned
+            <strong className="text-slate-700 font-semibold"><AnimatedNumber value={GOAL.current} format={fmtMoney} duration={600} /></strong> Earned
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-sm bg-violet-500" />
-            <strong className="text-slate-700 font-semibold">{fmtMoney(remaining)}</strong> To goal
+            <strong className="text-slate-700 font-semibold"><AnimatedNumber value={remaining} format={fmtMoney} duration={600} /></strong> To goal
           </span>
         </div>
       </div>
@@ -100,9 +110,6 @@ function EarningsCard() {
               Next payment of <strong className="font-semibold text-slate-800">{fmtMoney(nextInvoice.amount)}</strong> due{' '}
               {fmtDate(nextInvoice.due)}.
             </p>
-            <button className="focus-ring inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:text-emerald-800 shrink-0">
-              View <ArrowUpRight className="w-3.5 h-3.5" aria-hidden />
-            </button>
           </div>
         </div>
       )}
@@ -111,8 +118,8 @@ function EarningsCard() {
 }
 
 // Style 4 (ref: "Emma's Online-Shop") — title (matches cards 1 & 4), fact pills, colored day-strip.
-function ActiveProjectsCard() {
-  const active = PROJECTS.filter((p) => p.status !== 'Done');
+function ActiveProjectsCard({ projects }: Pick<ProjectPageProps, 'projects'>) {
+  const active = projects.filter((p) => p.status !== 'Done');
   const sortedByDeadline = [...active].sort((a, b) => a.deadline.localeCompare(b.deadline));
   const inProgressCount = active.filter((p) => p.status === 'In progress').length;
   const clientCount = new Set(active.map((p) => p.client)).size;
@@ -122,32 +129,41 @@ function ActiveProjectsCard() {
     <Card className="h-full flex flex-col justify-between">
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Active projects</p>
-        <p className="text-3xl font-bold mt-1">{KPIS.activeProjects}</p>
+        <p className="text-3xl font-bold mt-1"><AnimatedNumber value={KPIS.activeProjects} format={(v) => Math.round(v).toLocaleString('en-US')} duration={600} /></p>
       </div>
 
       <div>
         <div className="flex flex-wrap gap-2">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs font-medium text-slate-600">
-            <FolderKanban className="w-3.5 h-3.5" aria-hidden /> {inProgressCount} in progress
+             <Folder className="w-3.5 h-3.5" /> <AnimatedNumber value={inProgressCount} format={(v) => Math.round(v).toLocaleString('en-US')} duration={600} /> in progress
           </span>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs font-medium text-slate-600">
-            <Users className="w-3.5 h-3.5" aria-hidden /> {clientCount} clients
+             <Users className="w-3.5 h-3.5" /> <AnimatedNumber value={clientCount} format={(v) => Math.round(v).toLocaleString('en-US')} duration={600} /> clients
           </span>
           {nearest && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs font-medium text-slate-600">
-              <Clock className="w-3.5 h-3.5" aria-hidden /> Next due {fmtDate(nearest.deadline)}
+              <Calendar className="w-3.5 h-3.5" /> Next due {fmtDate(nearest.deadline)}
             </span>
           )}
         </div>
 
-        <div className="flex gap-[3px] mt-4" aria-hidden>
+        <div
+          className="flex gap-[3px] mt-4"
+          role="img"
+          aria-label="Project deadline strip. Green means more than seven days away, amber means due within seven days, and red means overdue."
+        >
           {sortedByDeadline.map((p) => {
             const days = Math.round((new Date(p.deadline + 'T00:00:00').getTime() - TODAY.getTime()) / 86400000);
             const color = days < 0 ? 'bg-rose-500' : days <= 7 ? 'bg-amber-400' : 'bg-emerald-500';
             return <span key={p.id} className={`flex-1 h-6 rounded-sm ${color}`} title={`${p.name} — due ${fmtDate(p.deadline)}`} />;
           })}
         </div>
-        <div className="flex items-center justify-between mt-1.5 text-xs text-slate-400">
+        <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-slate-500" aria-label="Deadline legend">
+          <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-emerald-500" />More than 7 days</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-amber-400" />Due within 7 days</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-rose-500" />Overdue</span>
+        </div>
+        <div className="flex items-center justify-between mt-1.5 text-xs text-slate-500">
           <span>Earliest deadline</span>
           <span>Latest deadline</span>
         </div>
@@ -167,12 +183,11 @@ const PROJECT_COLS: { key: ProjectSortKey; label: string }[] = [
   { key: 'progress', label: 'Progress' },
 ];
 
-export default function Overview() {
+export default function Overview({ projects }: ProjectPageProps) {
   const [mode, setMode] = useState<'earnings' | 'hours'>('earnings');
-  const [projects, setProjects] = useState<Project[]>(PROJECTS);
   const [projectSort, setProjectSort] = useState<{ key: ProjectSortKey; dir: 1 | -1 }>({ key: 'deadline', dir: 1 });
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [toast, setToast] = useState('');
+  const earningsChartReady = useDataVizReady(120);
+  const invoiceChartReady = useDataVizReady(260);
 
   const invoiceStatusData = useMemo(
     () =>
@@ -192,45 +207,6 @@ export default function Overview() {
     setProjectSort((s) => (s.key === key ? { key, dir: (s.dir * -1) as 1 | -1 } : { key, dir: 1 }));
   }
 
-  function toggleRow(id: number) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
-
-  function toggleAllPreviewRows() {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      const allSelected = projectPreview.every((p) => next.has(p.id));
-      projectPreview.forEach((p) => (allSelected ? next.delete(p.id) : next.add(p.id)));
-      return next;
-    });
-  }
-
-  function duplicateProject(p: Project) {
-    const maxId = Math.max(...projects.map((x) => x.id));
-    setProjects((prev) => [...prev, { ...p, id: maxId + 1, name: `${p.name} (copy)` }]);
-  }
-
-  function deleteProject(id: number) {
-    setProjects((prev) => prev.filter((p) => p.id !== id));
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  }
-
-  function deleteSelected() {
-    setToast(`Deleted ${selectedIds.size} project${selectedIds.size === 1 ? '' : 's'}`);
-    setTimeout(() => setToast(''), 2200);
-    selectedIds.forEach((id) => deleteProject(id));
-  }
-
-  const allPreviewSelected = projectPreview.length > 0 && projectPreview.every((p) => selectedIds.has(p.id));
-
   const invoiceTotal = invoiceStatusData.reduce((s, d) => s + d.amount, 0) || 1;
 
   return (
@@ -240,29 +216,14 @@ export default function Overview() {
           <h1 className="text-2xl font-bold mb-1">Overview</h1>
           <p className="text-sm text-slate-500">Here's how things are looking this month.</p>
         </div>
-        <button className="focus-ring flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-hairline bg-white text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 shrink-0">
-          <Filter className="w-4 h-4" aria-hidden />
-          Filter
-        </button>
       </div>
 
       {/* 3 KPIs, each in its own layout style — equal-width, one row on large screens */}
-      <motion.div
-        className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4"
-        variants={staggerContainer}
-        initial="hidden"
-        animate="show"
-      >
-        <motion.div variants={staggerItem}>
-          <EarningsCard />
-        </motion.div>
-        <motion.div variants={staggerItem}>
-          <ActiveProjectsCard />
-        </motion.div>
-        <motion.div variants={staggerItem}>
-          <PendingInvoicesCard />
-        </motion.div>
-      </motion.div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+        <EarningsCard />
+        <ActiveProjectsCard projects={projects} />
+        <PendingInvoicesCard />
+      </div>
 
       {/* 2 equal-width charts, filling the same width as the row above */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
@@ -272,43 +233,48 @@ export default function Overview() {
             <div className="flex bg-slate-100 rounded-lg p-0.5 text-xs">
               <button
                 onClick={() => setMode('earnings')}
-                className={`focus-ring px-2.5 py-1 rounded-md font-medium ${mode === 'earnings' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}
+                className={`focus-ring px-2.5 py-1 rounded-full font-medium ${mode === 'earnings' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}
               >
                 Earnings
               </button>
               <button
                 onClick={() => setMode('hours')}
-                className={`focus-ring px-2.5 py-1 rounded-md font-medium ${mode === 'hours' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}
+                className={`focus-ring px-2.5 py-1 rounded-full font-medium ${mode === 'hours' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}
               >
                 Hours
               </button>
             </div>
           </div>
-          <AreaChart
-            className="h-64"
-            data={EARNINGS_BY_MONTH}
-            index="month"
-            categories={[mode]}
-            colors={['emerald']}
-            valueFormatter={(v) => (mode === 'earnings' ? fmtMoney(v) : `${v}h`)}
-            showLegend={false}
-            showAnimation
-          />
+          <div className="h-64">
+            {earningsChartReady && <AreaChart
+              className="h-64"
+              data={EARNINGS_BY_MONTH}
+              index="month"
+              categories={[mode]}
+              colors={['emerald']}
+              valueFormatter={(v) => (mode === 'earnings' ? fmtMoney(v) : `${v}h`)}
+              showLegend={false}
+              showAnimation
+            />}
+          </div>
         </Card>
 
         <Card>
           <h2 className="text-base font-semibold">Invoice status</h2>
           <p className="mt-1 text-sm text-slate-500">Breakdown of invoiced amounts by status.</p>
           <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-8 items-center">
-            <DonutChart
-              className="h-[13.5rem]"
-              data={invoiceStatusData}
-              category="amount"
-              index="status"
-              colors={INVOICE_STATUS_COLORS}
-              valueFormatter={fmtMoney}
-              showTooltip={false}
-            />
+             <div className="h-[13.5rem]">
+               {invoiceChartReady && <DonutChart
+                 className="h-[13.5rem]"
+                 data={invoiceStatusData}
+                 category="amount"
+                 index="status"
+                 colors={INVOICE_STATUS_COLORS}
+                 valueFormatter={fmtMoney}
+                 showTooltip={false}
+                 showAnimation
+               />}
+             </div>
             <ul className="space-y-3">
               {invoiceStatusData.map((d, i) => (
                 <li key={d.status} className="flex gap-3">
@@ -329,56 +295,39 @@ export default function Overview() {
         </Card>
       </div>
 
-      {/* Full-width projects table — same style/behavior as the Projects page table */}
+      {/* Read-only project snapshot; the Projects page owns project management actions. */}
       <Card className="p-0 overflow-x-auto">
-        <div className="flex items-center justify-between px-6 pt-5 pb-3">
-          <h2 className="text-base font-semibold">Projects</h2>
-          <span className="text-xs text-slate-400">Showing {projectPreview.length} of {projects.length}</span>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-6 pt-5 pb-3">
+          <div>
+            <h2 className="text-base font-semibold">Project snapshot</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Read-only overview. Manage projects from Projects.</p>
+          </div>
         </div>
         <Table>
           <TableHead className="bg-slate-50">
             <TableRow>
-              <TableHeaderCell className="w-10">
-                <input
-                  type="checkbox"
-                  aria-label="Select all rows"
-                  checked={allPreviewSelected}
-                  onChange={toggleAllPreviewRows}
-                  className="focus-ring w-4 h-4 rounded accent-slate-900"
-                />
-              </TableHeaderCell>
               {PROJECT_COLS.map((col) => (
                 <TableHeaderCell
                   key={col.key}
-                  tabIndex={0}
-                  onClick={() => sortProjectsBy(col.key)}
-                  onKeyDown={(e) => e.key === 'Enter' && sortProjectsBy(col.key)}
                   aria-sort={projectSort.key === col.key ? (projectSort.dir === 1 ? 'ascending' : 'descending') : 'none'}
-                  className="focus-ring cursor-pointer select-none"
+                  className="select-none"
                 >
-                  <span className="inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => sortProjectsBy(col.key)}
+                    className="focus-ring inline-flex items-center gap-1 rounded"
+                  >
                     {col.label}
                     <SortIcon active={projectSort.key === col.key} dir={projectSort.dir} />
-                  </span>
+                  </button>
                 </TableHeaderCell>
               ))}
-              <TableHeaderCell className="w-10" />
             </TableRow>
           </TableHead>
           <TableBody>
             {projectPreview.map((p) => {
-              const isSelected = selectedIds.has(p.id);
               return (
-                <TableRow key={p.id} className={`hover:bg-slate-50 ${isSelected ? 'bg-slate-50' : ''}`}>
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      aria-label={`Select ${p.name}`}
-                      checked={isSelected}
-                      onChange={() => toggleRow(p.id)}
-                      className="focus-ring w-4 h-4 rounded accent-slate-900"
-                    />
-                  </TableCell>
+                <TableRow key={p.id} className="hover:bg-slate-50">
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
                       <ProjectIcon seed={p.id} />
@@ -399,61 +348,13 @@ export default function Overview() {
                   <TableCell className="w-36">
                     <ProgressWithLabel value={p.progress} />
                   </TableCell>
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <Menu as="div" className="relative">
-                      <MenuButton className="focus-ring p-1.5 rounded-lg text-slate-400 hover:bg-slate-100" aria-label={`More actions for ${p.name}`}>
-                        <MoreHorizontal className="w-4 h-4" aria-hidden />
-                      </MenuButton>
-                      <MenuItems anchor="bottom end" className="z-30 w-40 rounded-xl border border-hairline bg-white shadow-lg p-1.5">
-                        <MenuItem>
-                          <button
-                            onClick={() => duplicateProject(p)}
-                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-700 data-[focus]:bg-slate-50"
-                          >
-                            <Copy className="w-3.5 h-3.5" aria-hidden /> Duplicate
-                          </button>
-                        </MenuItem>
-                        <MenuItem>
-                          <button
-                            onClick={() => deleteProject(p.id)}
-                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-rose-600 data-[focus]:bg-rose-50"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" aria-hidden /> Delete
-                          </button>
-                        </MenuItem>
-                      </MenuItems>
-                    </Menu>
-                  </TableCell>
                 </TableRow>
               );
             })}
           </TableBody>
         </Table>
 
-        <AnimatePresence>
-          {selectedIds.size > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-              className="flex flex-wrap items-center gap-3 px-4 py-3 border-t border-hairline bg-slate-50"
-            >
-              <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
-                {selectedIds.size} selected
-              </span>
-              <button
-                onClick={deleteSelected}
-                className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-hairline bg-white text-sm font-medium text-rose-600 hover:bg-rose-50"
-              >
-                <Trash2 className="w-4 h-4" aria-hidden />
-                Delete
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </Card>
-
-      <Toast show={!!toast} text={toast} />
     </div>
   );
 }

@@ -1,5 +1,5 @@
-import { Calendar } from 'lucide-react';
 import { SearchMorphInput, NotifBell } from './motion/interactions';
+import { Calendar } from 'lucide-react';
 
 export default function Topbar({
   search,
@@ -13,8 +13,8 @@ export default function Topbar({
       <div className="flex-1 max-w-sm">
         <SearchMorphInput value={search} onChange={setSearch} placeholder="Search projects, clients, invoices…" />
       </div>
-      <div className="hidden sm:flex items-center gap-1.5 text-sm font-medium text-slate-600 border border-hairline rounded-lg px-3 py-2">
-        <Calendar className="w-4 h-4" aria-hidden />
+       <div className="hidden sm:flex items-center gap-1.5 text-sm font-medium text-slate-600 border border-hairline rounded-full px-3 py-2">
+         <Calendar className="w-4 h-4" />
         This month <span aria-hidden="true">▾</span>
       </div>
       <NotifBell hasUnread />

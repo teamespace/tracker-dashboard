@@ -32,6 +32,7 @@ export interface Project {
 export interface Invoice {
   id: number;
   number: string;
+  projectId: number;
   client: string;
   amount: number;
   issued: string;
@@ -123,10 +124,12 @@ export const PROJECTS: Project[] = PROJECT_TEMPLATES.map(([name, status, value, 
 const INVOICE_STATUS_CYCLE: InvoiceStatus[] = ['Paid', 'Paid', 'Sent', 'Overdue', 'Draft', 'Paid', 'Sent'];
 export const INVOICES: Invoice[] = Array.from({ length: 25 }, (_, i) => {
   const client = CLIENTS_RAW[i % CLIENTS_RAW.length];
+  const clientProjects = PROJECTS.filter((project) => project.client === client.name);
   const status = INVOICE_STATUS_CYCLE[i % INVOICE_STATUS_CYCLE.length];
   return {
     id: i + 1,
     number: `INV-${1042 + i}`,
+    projectId: clientProjects[i % clientProjects.length].id,
     client: client.name,
     amount: 600 + (i % 9) * 450,
     issued: seededDate(-40 + i * 2),

@@ -4,4 +4,14 @@
 
 html, body, #root { height: 100%; }
 body { @apply bg-slate-50 text-slate-900 antialiased; font-family: Inter, system-ui, sans-serif; }
-th[aria-sort] { cursor: pointer; user-select: none; }
+.focus-ring:focus-visible { outline: 2px solid #0f172a; outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-icon,
+  .motion-icon * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

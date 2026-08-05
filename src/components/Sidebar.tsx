@@ -1,12 +1,14 @@
-import { LayoutGrid, FolderKanban, LineChart, Users, Receipt, Settings, ChevronLeft } from 'lucide-react';
+import type { ComponentType } from 'react';
 import { motion } from 'motion/react';
-import { useState } from 'react';
 import type { Page } from '../App';
+import { BarChart3, ChevronLeft, Folder, LayoutGrid, Receipt, Settings, Users } from 'lucide-react';
 
-const NAV: { id: Page; label: string; icon: typeof LayoutGrid }[] = [
+type NavIcon = ComponentType<{ className?: string }>;
+
+const NAV: { id: Page; label: string; icon: NavIcon }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutGrid },
-  { id: 'projects', label: 'Projects', icon: FolderKanban },
-  { id: 'earnings', label: 'Earnings', icon: LineChart },
+  { id: 'projects', label: 'Projects', icon: Folder },
+  { id: 'earnings', label: 'Earnings', icon: BarChart3 },
   { id: 'clients', label: 'Clients', icon: Users },
   { id: 'invoices', label: 'Invoices', icon: Receipt },
   { id: 'settings', label: 'Settings', icon: Settings },
@@ -23,8 +25,6 @@ export default function Sidebar({
   open: boolean;
   setOpen: (v: boolean) => void;
 }) {
-  const [hovered, setHovered] = useState<Page | null>(null);
-
   return (
     <>
       <aside
@@ -47,21 +47,12 @@ export default function Sidebar({
               <button
                 key={item.id}
                 onClick={() => setPage(item.id)}
-                onMouseEnter={() => setHovered(item.id)}
-                onMouseLeave={() => setHovered((h) => (h === item.id ? null : h))}
                 aria-current={active ? 'page' : undefined}
-                className={`focus-ring w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                 className={`focus-ring w-full flex items-center gap-3 px-3 py-2.5 rounded-full text-sm font-medium transition-colors ${
                   active ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'
                 }`}
               >
-                {/* rotate-on-hover lifted from Amicro's "Settings" interaction */}
-                <motion.div
-                  className="shrink-0"
-                  animate={{ rotate: hovered === item.id ? 180 : 0 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                >
-                  <Icon className="w-5 h-5" aria-hidden />
-                </motion.div>
+                <Icon className="w-5 h-5 shrink-0" />
                 {open && <span>{item.label}</span>}
               </button>
             );
@@ -75,7 +66,7 @@ export default function Sidebar({
           animate={{ rotate: open ? 0 : 180 }}
           transition={{ type: 'spring', stiffness: 300, damping: 25 }}
         >
-          <ChevronLeft className="w-4 h-4" aria-hidden />
+          <ChevronLeft className="w-4 h-4" />
         </motion.button>
       </aside>
 
@@ -91,11 +82,11 @@ export default function Sidebar({
             <button
               key={item.id}
               onClick={() => setPage(item.id)}
-              className={`focus-ring flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg text-[10px] font-medium ${
+               className={`focus-ring flex flex-col items-center gap-0.5 px-2 py-1 rounded-full text-[10px] font-medium ${
                 active ? 'text-emerald-700' : 'text-slate-400'
               }`}
             >
-              <Icon className="w-5 h-5" aria-hidden />
+                <Icon className="w-5 h-5" />
               <span>{item.label}</span>
             </button>
           );
