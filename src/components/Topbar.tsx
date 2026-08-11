@@ -18,9 +18,11 @@ export default function Topbar({
         This month <span aria-hidden="true">▾</span>
       </div>
       <NotifBell hasUnread />
-      <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center text-sm font-semibold shrink-0">
-        RM
-      </div>
+       <img
+         src="https://api.dicebear.com/9.x/toon-head/svg?seed=Raka%20Mahendra&backgroundColor=d1fae5"
+         alt="Raka Mahendra avatar"
+         className="w-9 h-9 rounded-full bg-emerald-100 object-cover shrink-0"
+       />
     </header>
   );
 }

@@ -1,15 +1,3 @@
-const AVATAR_COLORS = ['bg-emerald-600', 'bg-sky-600', 'bg-violet-600', 'bg-amber-600', 'bg-rose-600', 'bg-cyan-600'];
-
-function initials(name: string) {
-  return name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
-}
-
-function avatarColor(name: string) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
-}
-
 export default function Avatar({ name, size = 7 }: { name: string; size?: 6 | 7 | 8 | 10 | 14 }) {
   const dims = {
     6: 'w-6 h-6 text-[10px]',
@@ -19,8 +7,11 @@ export default function Avatar({ name, size = 7 }: { name: string; size?: 6 | 7 
     14: 'w-14 h-14 text-lg',
   }[size];
   return (
-    <span className={`rounded-full ${avatarColor(name)} text-white font-semibold flex items-center justify-center shrink-0 ${dims}`}>
-      {initials(name)}
-    </span>
+    <img
+      src={`https://api.dicebear.com/9.x/toon-head/svg?seed=${encodeURIComponent(name)}&backgroundColor=d1fae5`}
+      alt={`${name} avatar`}
+      loading="lazy"
+      className={`rounded-full bg-emerald-100 object-cover shrink-0 ${dims}`}
+    />
   );
 }

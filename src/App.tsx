@@ -9,6 +9,7 @@ import Invoices from './pages/Invoices';
 import Settings from './pages/Settings';
 import { pageTransition } from './components/motion/variants';
 import { PROJECTS, type Project } from './data';
+import TimedNotification from './components/TimedNotification';
 
 export type Page = 'overview' | 'projects' | 'earnings' | 'clients' | 'invoices' | 'settings';
 export type ProjectPageProps = {
@@ -63,8 +64,9 @@ export default function App() {
       </a>
       <div className="min-h-screen flex flex-col bg-slate-50">
       <TopNav page={page} setPage={setPage} />
+      <TimedNotification />
 
-      <main id="main-content" className="flex-1 px-4 sm:px-6 py-6 pb-20 lg:pb-6 max-w-[1440px] w-full mx-auto">
+      <main id="main-content" className="flex-1 px-4 sm:px-6 py-6 pb-20 lg:pb-6 max-w-[1920px] w-full mx-auto">
         <AnimatePresence>
           <motion.div key={page} variants={pageTransition} initial="initial" animate="animate" exit="exit">
              <ActivePage projects={projects} setProjects={setProjects} />

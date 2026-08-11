@@ -106,9 +106,11 @@ export default function TopNav({ page, setPage }: { page: Page; setPage: (p: Pag
             </button>
             <NotificationsMenu />
             <div className="relative">
-              <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center text-sm font-semibold shrink-0">
-                RM
-              </div>
+              <img
+                src="https://api.dicebear.com/9.x/toon-head/svg?seed=Raka%20Mahendra&backgroundColor=d1fae5"
+                alt="Raka Mahendra avatar"
+                className="w-9 h-9 rounded-full bg-emerald-100 object-cover shrink-0"
+              />
               <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white" />
             </div>
           </div>

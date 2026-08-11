@@ -23,6 +23,13 @@ export default function Settings() {
   const [profile, setProfile] = useState({ name: 'Rasya', email: 'rasya@queebo.chat', title: 'Freelance Product Designer' });
   const [payment, setPayment] = useState({ method: 'Bank transfer', rate: 85 });
   const [notifications, setNotifications] = useState({ invoiceReminders: true, deadlineAlerts: true, weeklySummary: false });
+  const [onboardingEnabled, setOnboardingEnabled] = useState(() => {
+    try {
+      return window.localStorage.getItem('studio-overview-onboarding-enabled') !== 'false';
+    } catch {
+      return true;
+    }
+  });
   const [toast, setToast] = useState(false);
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify({ profile, payment, notifications }));
   const currentSnapshot = JSON.stringify({ profile, payment, notifications });
@@ -137,6 +144,25 @@ export default function Settings() {
                    <Switch className="rounded-full" checked={notifications[key]} onChange={(v) => setNotifications({ ...notifications, [key]: v })} />
                 </div>
               ))}
+              <div className="flex items-center justify-between gap-4 py-3">
+                <div>
+                  <p className="text-sm font-medium">Dashboard onboarding</p>
+                  <p className="mt-0.5 text-xs text-slate-500">Show the quick tour the next time you open Overview.</p>
+                </div>
+                <Switch
+                  className="rounded-full"
+                  checked={onboardingEnabled}
+                  onChange={(enabled) => {
+                    setOnboardingEnabled(enabled);
+                    try {
+                      window.localStorage.setItem('studio-overview-onboarding-enabled', String(enabled));
+                      if (enabled) window.localStorage.removeItem('studio-overview-onboarding-complete');
+                    } catch {
+                      // Keep the preference usable when storage is unavailable.
+                    }
+                  }}
+                />
+              </div>
             </div>
           )}
 
