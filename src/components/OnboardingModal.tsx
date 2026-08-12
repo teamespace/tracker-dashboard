@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { ArrowRight, X } from 'lucide-react';
-import { EARNINGS_BY_MONTH } from '../data';
 
 const STEPS = [
   { eyebrow: 'Welcome to Studio', title: 'Your freelance business, at a glance.', body: 'Start with a clear view of projects, deadlines, earnings, and invoices. Everything important lives on the Overview.' },
@@ -9,14 +8,7 @@ const STEPS = [
 ];
 
 function OverviewPreview({ step }: { step: number }) {
-  const max = Math.max(...EARNINGS_BY_MONTH.map((item) => item.earnings));
-  return (
-    <div className="onboarding-preview">
-      {step === 0 && <div className="onboarding-preview-grid"><div className="onboarding-mini-card wide"><span>Monthly earnings</span><strong>$9,100</strong><i /></div><div className="onboarding-mini-card"><span>Active projects</span><strong>15</strong><b>6 in progress</b></div><div className="onboarding-mini-card"><span>Invoices</span><strong>$26.4k</strong><b>Needs review</b></div></div>}
-      {step === 1 && <div className="onboarding-chart-preview"><div className="flex items-end justify-between gap-1.5">{EARNINGS_BY_MONTH.map((item) => <i key={item.month} style={{ height: `${Math.max(16, (item.earnings / max) * 100)}%` }} />)}</div><span className="onboarding-chart-tooltip"><small>Aug</small><strong>$9,100</strong><em>+15.2%</em></span></div>}
-      {step === 2 && <div className="onboarding-attention-preview"><div><span className="h-2 w-2 rounded-full bg-rose-400" /><strong>Brand identity refresh</strong><em>10 days overdue</em></div><div><span className="h-2 w-2 rounded-full bg-amber-400" /><strong>Product launch page</strong><em>Due tomorrow</em></div><div><span className="h-2 w-2 rounded-full bg-emerald-400" /><strong>Payment milestone</strong><em>$1,500 upcoming</em></div></div>}
-    </div>
-  );
+  return <div className="onboarding-preview"><img src={`/onboarding/image-${step + 1}.png`} alt="" className="onboarding-preview-image" /></div>;
 }
 
 export default function OnboardingModal() {
